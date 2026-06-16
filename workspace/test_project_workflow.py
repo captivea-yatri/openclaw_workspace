@@ -16,9 +16,9 @@ import xmlrpc.client
 # ---------------------------------------------------------------------------
 # Configuration – replace with your real credentials
 # ---------------------------------------------------------------------------
-ODOO_URL = "https://aflutter-marxism-creamer.ngrok-free.dev"
+ODOO_URL = "https://uriah-apolitical-masako.ngrok-free.dev"
 DB = "odoo19_captivea2"
-USERNAME = "admin1"
+USERNAME = "nimesh@captivea.com"
 PASSWORD = "a"  # <-- actual password
 
 # ---------------------------------------------------------------------------
@@ -143,7 +143,7 @@ else:
 # partner_company_id = partner_data[0].get('company_id') and partner_data[0]['company_id'][0] or False
 partner_company_id = False  # assume no company
 # Determine which company to use for the sales order (fallback to a known company if partner has none)
-sales_order_company_id = partner_company_id if partner_company_id else 1  # 1 = Captivea USA (adjust if needed)
+sales_order_company_id = 9  # forced company ID as requested
 # Choose a sales team belonging to the same company (or any team without a company constraint)
 team_search_domain = []
 if sales_order_company_id:
@@ -204,6 +204,14 @@ try:
 except Exception as e:
     add_log("find_or_create_project", "FAIL", str(e))
     sys.exit(1)
+
+# ------------------------------------------------------------
+# Set a custom phase on the project before calculating progress
+try:
+    models.execute_kw(DB, uid, PASSWORD, "project.project", "write", [[project_id], {"phase_id": 1}])
+    add_log("set_phase_id", "PASS", "phase_id=1 set on project")
+except Exception as e:
+    add_log("set_phase_id", "FAIL", str(e))
 
 # ---------------------------------------------------------------------------
 # 5️⃣  Walk through the status lifecycle (adjust field name if needed)
@@ -493,10 +501,10 @@ add_log("create_report_tasks", "SKIP", "Snapshot creation skipped in this run")
 # Run the progress report wizard (model may be project.progress.report or similar)
 report_wizard_id = None
 try:
-    report_wizard_id = models.execute_kw(DB, uid, PASSWORD, "project.progress.report", "create", [{"project_id": project_id}])
-    report_res = models.execute_kw(DB, uid, PASSWORD, "project.progress.report", "action_compute", [[report_wizard_id]])
+    report_wizard_id = models.execute_kw(DB, uid, PASSWORD, "project.progress", "create", [{"project_id": project_id}])
+    report_res = models.execute_kw(DB, uid, PASSWORD, "project.progress", "calculate_the_progress_remaining_hours", [[report_wizard_id]])
     # Assume the wizard stores a JSON snapshot in a field called 'snapshot_json'
-    snapshot = models.execute_kw(DB, uid, PASSWORD, "project.progress.report", "read", [[report_wizard_id]], {"fields": ["snapshot_json"]})[0].get('snapshot_json')
+    snapshot = models.execute_kw(DB, uid, PASSWORD, "project.progress", "read", [[report_wizard_id]], {"fields": ["snapshot_json"]})[0].get('snapshot_json')
     add_log("progress_report", "PASS", snapshot if snapshot else "No snapshot returned")
 except Exception as e:
     add_log("progress_report", "FAIL", str(e))
