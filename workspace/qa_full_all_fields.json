@@ -3,8 +3,8 @@
     "tc": 10,
     "module": "res.partner",
     "action": "Read",
-    "status": "PASS",
-    "detail": "Found 5 records"
+    "status": "FAIL",
+    "detail": "<Fault 4: \"You are not allowed to access 'Fields' (ir.model.fields) records.\\n\\nThis operation is allowed for the following groups:\\n\\t- Marketing Automation/User\\n\\t- Marketing Director\\n\\t- Access Rights\\n\\nContact your administrator to request access if necessary.\">"
   },
   {
     "tc": 59,
@@ -25,14 +25,14 @@
     "module": "crm.lead",
     "action": "Read",
     "status": "FAIL",
-    "detail": "<Fault 4: \"You are not allowed to access 'Lead' (crm.lead) records.\\n\\nThis operation is allowed for the following groups:\\n\\t- Consultant/Developer/Consultant\\n\\t- Consultant/Developer/Developer\\n\\t- Sales/Administrator\\n\\t- Administrative Responsible\\n\\t- Can access data in read only mode\\n\\t- Can access opportunities in Read-only mode\\n\\t- CFO\\n\\t- CFO For His Company\\n\\t- Community Manager\\n\\t- Customer Referencer\\n\\t- Email Manager\\n\\t- Infographiste\\n\\t- Management Control\\n\\t- Marketing Manager\\n\\t- Operation\\n\\t- Operation On Boarder\\n\\t- Quality Manager\\n\\t- Sales(cold)\\n\\t- Sales Cold Team Director\\n\\t- Sales Cold Team Manager\\n\\t- Sales(Hot)\\n\\t- Show Sales\\n\\t- Team Director\\n\\t- Team Manager\\n\\t- VPs\\n\\t- Webmaster\\n\\t- Role / Portal\\n\\nContact your administrator to request access if necessary.\">"
+    "detail": "<Fault 4: \"You are not allowed to access 'Fields' (ir.model.fields) records.\\n\\nThis operation is allowed for the following groups:\\n\\t- Marketing Automation/User\\n\\t- Marketing Director\\n\\t- Access Rights\\n\\nContact your administrator to request access if necessary.\">"
   },
   {
     "tc": 62,
     "module": "crm.lead",
     "action": "Read",
     "status": "FAIL",
-    "detail": "<Fault 4: \"You are not allowed to access 'Lead' (crm.lead) records.\\n\\nThis operation is allowed for the following groups:\\n\\t- Consultant/Developer/Consultant\\n\\t- Consultant/Developer/Developer\\n\\t- Sales/Administrator\\n\\t- Administrative Responsible\\n\\t- Can access data in read only mode\\n\\t- Can access opportunities in Read-only mode\\n\\t- CFO\\n\\t- CFO For His Company\\n\\t- Community Manager\\n\\t- Customer Referencer\\n\\t- Email Manager\\n\\t- Infographiste\\n\\t- Management Control\\n\\t- Marketing Manager\\n\\t- Operation\\n\\t- Operation On Boarder\\n\\t- Quality Manager\\n\\t- Sales(cold)\\n\\t- Sales Cold Team Director\\n\\t- Sales Cold Team Manager\\n\\t- Sales(Hot)\\n\\t- Show Sales\\n\\t- Team Director\\n\\t- Team Manager\\n\\t- VPs\\n\\t- Webmaster\\n\\t- Role / Portal\\n\\nContact your administrator to request access if necessary.\">"
+    "detail": "<Fault 4: \"You are not allowed to access 'Fields' (ir.model.fields) records.\\n\\nThis operation is allowed for the following groups:\\n\\t- Marketing Automation/User\\n\\t- Marketing Director\\n\\t- Access Rights\\n\\nContact your administrator to request access if necessary.\">"
   },
   {
     "tc": 63,
@@ -52,22 +52,15 @@
     "tc": 65,
     "module": "sale.order",
     "action": "Read",
-    "status": "PASS",
-    "detail": "Found 5 records"
+    "status": "FAIL",
+    "detail": "<Fault 4: \"You are not allowed to access 'Fields' (ir.model.fields) records.\\n\\nThis operation is allowed for the following groups:\\n\\t- Marketing Automation/User\\n\\t- Marketing Director\\n\\t- Access Rights\\n\\nContact your administrator to request access if necessary.\">"
   },
   {
     "tc": 66,
     "module": "sale.order",
     "action": "Read",
-    "status": "PASS",
-    "detail": "Found 5 records"
-  },
-  {
-    "tc": 66,
-    "module": "sale.order",
-    "action": "Write",
-    "status": "BLOCKED",
-    "detail": "Permission denied (fault 4)"
+    "status": "FAIL",
+    "detail": "<Fault 4: \"You are not allowed to access 'Fields' (ir.model.fields) records.\\n\\nThis operation is allowed for the following groups:\\n\\t- Marketing Automation/User\\n\\t- Marketing Director\\n\\t- Access Rights\\n\\nContact your administrator to request access if necessary.\">"
   },
   {
     "tc": 67,
@@ -87,22 +80,15 @@
     "tc": 69,
     "module": "project.project",
     "action": "Read",
-    "status": "PASS",
-    "detail": "Found 5 records"
+    "status": "FAIL",
+    "detail": "<Fault 4: \"You are not allowed to access 'Fields' (ir.model.fields) records.\\n\\nThis operation is allowed for the following groups:\\n\\t- Marketing Automation/User\\n\\t- Marketing Director\\n\\t- Access Rights\\n\\nContact your administrator to request access if necessary.\">"
   },
   {
     "tc": 70,
     "module": "project.project",
     "action": "Read",
-    "status": "PASS",
-    "detail": "Found 5 records"
-  },
-  {
-    "tc": 70,
-    "module": "project.project",
-    "action": "Write",
-    "status": "PASS",
-    "detail": "Wrote {'description': 'QA edit'}"
+    "status": "FAIL",
+    "detail": "<Fault 4: \"You are not allowed to access 'Fields' (ir.model.fields) records.\\n\\nThis operation is allowed for the following groups:\\n\\t- Marketing Automation/User\\n\\t- Marketing Director\\n\\t- Access Rights\\n\\nContact your administrator to request access if necessary.\">"
   },
   {
     "tc": 71,
@@ -122,36 +108,29 @@
     "tc": 73,
     "module": "project.task",
     "action": "Read",
-    "status": "PASS",
-    "detail": "Found 5 records"
+    "status": "FAIL",
+    "detail": "<Fault 4: \"You are not allowed to access 'Fields' (ir.model.fields) records.\\n\\nThis operation is allowed for the following groups:\\n\\t- Marketing Automation/User\\n\\t- Marketing Director\\n\\t- Access Rights\\n\\nContact your administrator to request access if necessary.\">"
   },
   {
     "tc": 74,
     "module": "project.task",
     "action": "Read",
-    "status": "PASS",
-    "detail": "Found 5 records"
-  },
-  {
-    "tc": 74,
-    "module": "project.task",
-    "action": "Write",
-    "status": "PASS",
-    "detail": "Wrote {'name': 'QA Validation Task - Edit'}"
+    "status": "FAIL",
+    "detail": "<Fault 4: \"You are not allowed to access 'Fields' (ir.model.fields) records.\\n\\nThis operation is allowed for the following groups:\\n\\t- Marketing Automation/User\\n\\t- Marketing Director\\n\\t- Access Rights\\n\\nContact your administrator to request access if necessary.\">"
   },
   {
     "tc": 75,
     "module": "project.task",
     "action": "Create",
     "status": "PASS",
-    "detail": "Created id=225164"
+    "detail": "Created id=225169"
   },
   {
     "tc": 75,
     "module": "project.task",
     "action": "Delete",
     "status": "SKIPPED",
-    "detail": "Skipped deletion of id=225164"
+    "detail": "Skipped deletion of id=225169"
   },
   {
     "tc": 76,
@@ -164,36 +143,29 @@
     "tc": 77,
     "module": "account.analytic.line",
     "action": "Read",
-    "status": "PASS",
-    "detail": "Found 5 records"
+    "status": "FAIL",
+    "detail": "<Fault 4: \"You are not allowed to access 'Fields' (ir.model.fields) records.\\n\\nThis operation is allowed for the following groups:\\n\\t- Marketing Automation/User\\n\\t- Marketing Director\\n\\t- Access Rights\\n\\nContact your administrator to request access if necessary.\">"
   },
   {
     "tc": 78,
     "module": "account.analytic.line",
     "action": "Read",
-    "status": "PASS",
-    "detail": "Found 5 records"
-  },
-  {
-    "tc": 78,
-    "module": "account.analytic.line",
-    "action": "Write",
-    "status": "BLOCKED",
-    "detail": "Permission denied (fault 4)"
+    "status": "FAIL",
+    "detail": "<Fault 4: \"You are not allowed to access 'Fields' (ir.model.fields) records.\\n\\nThis operation is allowed for the following groups:\\n\\t- Marketing Automation/User\\n\\t- Marketing Director\\n\\t- Access Rights\\n\\nContact your administrator to request access if necessary.\">"
   },
   {
     "tc": 79,
     "module": "account.analytic.line",
     "action": "Create",
     "status": "PASS",
-    "detail": "Created id=575020"
+    "detail": "Created id=575023"
   },
   {
     "tc": 79,
     "module": "account.analytic.line",
     "action": "Delete",
     "status": "SKIPPED",
-    "detail": "Skipped deletion of id=575020"
+    "detail": "Skipped deletion of id=575023"
   },
   {
     "tc": 80,
@@ -206,22 +178,15 @@
     "tc": 81,
     "module": "account.move",
     "action": "Read",
-    "status": "PASS",
-    "detail": "Found 5 records"
+    "status": "FAIL",
+    "detail": "<Fault 4: \"You are not allowed to access 'Fields' (ir.model.fields) records.\\n\\nThis operation is allowed for the following groups:\\n\\t- Marketing Automation/User\\n\\t- Marketing Director\\n\\t- Access Rights\\n\\nContact your administrator to request access if necessary.\">"
   },
   {
     "tc": 82,
     "module": "account.move",
     "action": "Read",
-    "status": "PASS",
-    "detail": "Found 5 records"
-  },
-  {
-    "tc": 82,
-    "module": "account.move",
-    "action": "Write",
-    "status": "BLOCKED",
-    "detail": "Permission denied (fault 4)"
+    "status": "FAIL",
+    "detail": "<Fault 4: \"You are not allowed to access 'Fields' (ir.model.fields) records.\\n\\nThis operation is allowed for the following groups:\\n\\t- Marketing Automation/User\\n\\t- Marketing Director\\n\\t- Access Rights\\n\\nContact your administrator to request access if necessary.\">"
   },
   {
     "tc": 83,
@@ -241,22 +206,15 @@
     "tc": 85,
     "module": "account.asset",
     "action": "Read",
-    "status": "PASS",
-    "detail": "Found 5 records"
+    "status": "FAIL",
+    "detail": "<Fault 4: \"You are not allowed to access 'Fields' (ir.model.fields) records.\\n\\nThis operation is allowed for the following groups:\\n\\t- Marketing Automation/User\\n\\t- Marketing Director\\n\\t- Access Rights\\n\\nContact your administrator to request access if necessary.\">"
   },
   {
     "tc": 86,
     "module": "account.asset",
     "action": "Read",
-    "status": "PASS",
-    "detail": "Found 5 records"
-  },
-  {
-    "tc": 86,
-    "module": "account.asset",
-    "action": "Write",
-    "status": "BLOCKED",
-    "detail": "Permission denied (fault 4)"
+    "status": "FAIL",
+    "detail": "<Fault 4: \"You are not allowed to access 'Fields' (ir.model.fields) records.\\n\\nThis operation is allowed for the following groups:\\n\\t- Marketing Automation/User\\n\\t- Marketing Director\\n\\t- Access Rights\\n\\nContact your administrator to request access if necessary.\">"
   },
   {
     "tc": 87,
@@ -276,22 +234,15 @@
     "tc": 89,
     "module": "purchase.order",
     "action": "Read",
-    "status": "PASS",
-    "detail": "Found 5 records"
+    "status": "FAIL",
+    "detail": "<Fault 4: \"You are not allowed to access 'Fields' (ir.model.fields) records.\\n\\nThis operation is allowed for the following groups:\\n\\t- Marketing Automation/User\\n\\t- Marketing Director\\n\\t- Access Rights\\n\\nContact your administrator to request access if necessary.\">"
   },
   {
     "tc": 90,
     "module": "purchase.order",
     "action": "Read",
-    "status": "PASS",
-    "detail": "Found 5 records"
-  },
-  {
-    "tc": 90,
-    "module": "purchase.order",
-    "action": "Write",
-    "status": "BLOCKED",
-    "detail": "Permission denied (fault 4)"
+    "status": "FAIL",
+    "detail": "<Fault 4: \"You are not allowed to access 'Fields' (ir.model.fields) records.\\n\\nThis operation is allowed for the following groups:\\n\\t- Marketing Automation/User\\n\\t- Marketing Director\\n\\t- Access Rights\\n\\nContact your administrator to request access if necessary.\">"
   },
   {
     "tc": 91,
@@ -311,29 +262,22 @@
     "tc": 93,
     "module": "hr.employee",
     "action": "Read",
-    "status": "PASS",
-    "detail": "Found 5 records"
+    "status": "FAIL",
+    "detail": "<Fault 4: \"You are not allowed to access 'Fields' (ir.model.fields) records.\\n\\nThis operation is allowed for the following groups:\\n\\t- Marketing Automation/User\\n\\t- Marketing Director\\n\\t- Access Rights\\n\\nContact your administrator to request access if necessary.\">"
   },
   {
     "tc": 94,
     "module": "hr.employee",
     "action": "Read",
-    "status": "PASS",
-    "detail": "Found 5 records"
-  },
-  {
-    "tc": 94,
-    "module": "hr.employee",
-    "action": "Write",
-    "status": "BLOCKED",
-    "detail": "Permission denied (fault 4)"
+    "status": "FAIL",
+    "detail": "<Fault 4: \"You are not allowed to access 'Fields' (ir.model.fields) records.\\n\\nThis operation is allowed for the following groups:\\n\\t- Marketing Automation/User\\n\\t- Marketing Director\\n\\t- Access Rights\\n\\nContact your administrator to request access if necessary.\">"
   },
   {
     "tc": 95,
     "module": "hr.employee",
     "action": "Create",
     "status": "FAIL",
-    "detail": "Fault You are not allowed to create 'Resources' (resource.resource) records.\n\nThis operation is allowed for the following groups:\n\t- Appointment/Administrator\n\t- Employees/Administrator\n\t- Employees/Officer: Manage all employees\n\nContact your administrator to request access if necessary."
+    "detail": "<ProtocolError for uriah-apolitical-masako.ngrok-free.dev/xmlrpc/2/object: 503 Service Unavailable>"
   },
   {
     "tc": 96,
@@ -346,36 +290,22 @@
     "tc": 117,
     "module": "helpdesk.ticket",
     "action": "Read",
-    "status": "PASS",
-    "detail": "Found 5 records"
+    "status": "FAIL",
+    "detail": "<ProtocolError for uriah-apolitical-masako.ngrok-free.dev/xmlrpc/2/object: 404 Not Found>"
   },
   {
     "tc": 118,
     "module": "helpdesk.ticket",
     "action": "Read",
-    "status": "PASS",
-    "detail": "Found 5 records"
-  },
-  {
-    "tc": 118,
-    "module": "helpdesk.ticket",
-    "action": "Write",
-    "status": "PASS",
-    "detail": "Wrote {'description': 'QA edit'}"
+    "status": "FAIL",
+    "detail": "<ProtocolError for uriah-apolitical-masako.ngrok-free.dev/xmlrpc/2/object: 404 Not Found>"
   },
   {
     "tc": 119,
     "module": "helpdesk.ticket",
     "action": "Create",
-    "status": "PASS",
-    "detail": "Created id=11413"
-  },
-  {
-    "tc": 119,
-    "module": "helpdesk.ticket",
-    "action": "Delete",
-    "status": "SKIPPED",
-    "detail": "Skipped deletion of id=11413"
+    "status": "FAIL",
+    "detail": "<ProtocolError for uriah-apolitical-masako.ngrok-free.dev/xmlrpc/2/object: 404 Not Found>"
   },
   {
     "tc": 120,
@@ -410,7 +340,7 @@
     "module": "glive.change.request",
     "action": "Read",
     "status": "FAIL",
-    "detail": "<Fault 4: \"You are not allowed to access 'Go Live Change Request' (glive.change.request) records.\\n\\nThis operation is allowed for the following groups:\\n\\t- Administrative\\n\\t- Administrative Responsible\\n\\t- CEO\\n\\t- CFO\\n\\t- CFO For His Company\\n\\t- Direction and Applied Approve\\n\\t- DRH\\n\\t- HR\\n\\t- HR Responsible\\n\\t- Legal\\n\\t- Management Control\\n\\t- Manager Approve\\n\\t- Operation\\n\\t- Operation On Boarder\\n\\t- Quality Manager\\n\\t- Sales(Hot)\\n\\t- Sales Manager\\n\\t- Team Director\\n\\t- Team Manager\\n\\t- VP of Quality and Knowledge\\n\\t- VPs\\n\\t- Role / Administrator\\n\\nContact your administrator to request access if necessary.\">"
+    "detail": "<Fault 4: \"You are not allowed to access 'Fields' (ir.model.fields) records.\\n\\nThis operation is allowed for the following groups:\\n\\t- Marketing Automation/User\\n\\t- Marketing Director\\n\\t- Access Rights\\n\\nContact your administrator to request access if necessary.\">"
   },
   {
     "tc": 300,
@@ -424,7 +354,7 @@
     "module": "hr.timesheet",
     "action": "Read",
     "status": "FAIL",
-    "detail": "<Fault 2: \"Object hr.timesheet doesn't exist\">"
+    "detail": "<Fault 4: \"You are not allowed to access 'Fields' (ir.model.fields) records.\\n\\nThis operation is allowed for the following groups:\\n\\t- Marketing Automation/User\\n\\t- Marketing Director\\n\\t- Access Rights\\n\\nContact your administrator to request access if necessary.\">"
   },
   {
     "tc": 301,
@@ -438,21 +368,21 @@
     "module": "hr.goal",
     "action": "Read",
     "status": "FAIL",
-    "detail": "<Fault 2: \"Object hr.goal doesn't exist\">"
+    "detail": "<ProtocolError for uriah-apolitical-masako.ngrok-free.dev/xmlrpc/2/object: 503 Service Unavailable>"
   },
   {
     "tc": 302,
     "module": "hr.goal",
     "action": "Generic test",
     "status": "FAIL",
-    "detail": "<Fault 4: \"You are not allowed to access 'Fields' (ir.model.fields) records.\\n\\nThis operation is allowed for the following groups:\\n\\t- Marketing Automation/User\\n\\t- Marketing Director\\n\\t- Access Rights\\n\\nContact your administrator to request access if necessary.\">"
+    "detail": "<ProtocolError for uriah-apolitical-masako.ngrok-free.dev/xmlrpc/2/object: 404 Not Found>"
   },
   {
     "tc": 303,
     "module": "hr.challenge",
     "action": "Read",
     "status": "FAIL",
-    "detail": "<Fault 2: \"Object hr.challenge doesn't exist\">"
+    "detail": "<ProtocolError for uriah-apolitical-masako.ngrok-free.dev/xmlrpc/2/object: 404 Not Found>"
   },
   {
     "tc": 303,
@@ -465,8 +395,8 @@
     "tc": 304,
     "module": "hr.attendance",
     "action": "Read",
-    "status": "PASS",
-    "detail": "Found 0 records"
+    "status": "FAIL",
+    "detail": "<Fault 4: \"You are not allowed to access 'Fields' (ir.model.fields) records.\\n\\nThis operation is allowed for the following groups:\\n\\t- Marketing Automation/User\\n\\t- Marketing Director\\n\\t- Access Rights\\n\\nContact your administrator to request access if necessary.\">"
   },
   {
     "tc": 304,
@@ -480,7 +410,7 @@
     "module": "hr.applicant",
     "action": "Read",
     "status": "FAIL",
-    "detail": "<Fault 4: \"You are not allowed to access 'Applicant' (hr.applicant) records.\\n\\nThis operation is allowed for the following groups:\\n\\t- Recruitment/Interviewer\\n\\t- Recruitment/Officer: Manage all applicants\\n\\t- Administrative\\n\\t- Administrative Responsible\\n\\t- HR\\n\\t- HR Responsible\\n\\t- Management Control\\n\\t- Office Manager\\n\\t- Recruiter\\n\\t- Sales(cold)\\n\\t- Sales Manager\\n\\t- Team Director\\n\\t- Team Manager\\n\\t- VPs\\n\\t- Webmaster\\n\\nContact your administrator to request access if necessary.\">"
+    "detail": "<Fault 4: \"You are not allowed to access 'Fields' (ir.model.fields) records.\\n\\nThis operation is allowed for the following groups:\\n\\t- Marketing Automation/User\\n\\t- Marketing Director\\n\\t- Access Rights\\n\\nContact your administrator to request access if necessary.\">"
   },
   {
     "tc": 305,
@@ -494,7 +424,7 @@
     "module": "website.page",
     "action": "Read",
     "status": "FAIL",
-    "detail": "<Fault 4: \"You are not allowed to access 'Page' (website.page) records.\\n\\nThis operation is allowed for the following groups:\\n\\t- Website/Editor and Designer\\n\\nContact your administrator to request access if necessary.\">"
+    "detail": "<Fault 4: \"You are not allowed to access 'Fields' (ir.model.fields) records.\\n\\nThis operation is allowed for the following groups:\\n\\t- Marketing Automation/User\\n\\t- Marketing Director\\n\\t- Access Rights\\n\\nContact your administrator to request access if necessary.\">"
   },
   {
     "tc": 306,
@@ -508,7 +438,7 @@
     "module": "marketing.campaign",
     "action": "Read",
     "status": "FAIL",
-    "detail": "<Fault 4: \"You are not allowed to access 'Marketing Campaign' (marketing.campaign) records.\\n\\nThis operation is allowed for the following groups:\\n\\t- Marketing Automation/User\\n\\nContact your administrator to request access if necessary.\">"
+    "detail": "<Fault 4: \"You are not allowed to access 'Fields' (ir.model.fields) records.\\n\\nThis operation is allowed for the following groups:\\n\\t- Marketing Automation/User\\n\\t- Marketing Director\\n\\t- Access Rights\\n\\nContact your administrator to request access if necessary.\">"
   },
   {
     "tc": 307,
@@ -522,35 +452,35 @@
     "module": "mail.mass_mailing",
     "action": "Read",
     "status": "FAIL",
-    "detail": "<Fault 2: \"Object mail.mass_mailing doesn't exist\">"
+    "detail": "<Fault 4: \"You are not allowed to access 'Fields' (ir.model.fields) records.\\n\\nThis operation is allowed for the following groups:\\n\\t- Marketing Automation/User\\n\\t- Marketing Director\\n\\t- Access Rights\\n\\nContact your administrator to request access if necessary.\">"
   },
   {
     "tc": 308,
     "module": "mail.mass_mailing",
     "action": "Generic test",
     "status": "FAIL",
-    "detail": "<Fault 4: \"You are not allowed to access 'Fields' (ir.model.fields) records.\\n\\nThis operation is allowed for the following groups:\\n\\t- Marketing Automation/User\\n\\t- Marketing Director\\n\\t- Access Rights\\n\\nContact your administrator to request access if necessary.\">"
+    "detail": "<ProtocolError for uriah-apolitical-masako.ngrok-free.dev/xmlrpc/2/object: 503 Service Unavailable>"
   },
   {
     "tc": 309,
     "module": "social.post",
     "action": "Read",
     "status": "FAIL",
-    "detail": "<Fault 4: \"You are not allowed to access 'Social Post' (social.post) records.\\n\\nThis operation is allowed for the following groups:\\n\\t- Social Marketing/Social Manager\\n\\t- Social Marketing/Social User\\n\\nContact your administrator to request access if necessary.\">"
+    "detail": "<ProtocolError for uriah-apolitical-masako.ngrok-free.dev/xmlrpc/2/object: 404 Not Found>"
   },
   {
     "tc": 309,
     "module": "social.post",
     "action": "Generic test",
     "status": "FAIL",
-    "detail": "<Fault 4: \"You are not allowed to access 'Fields' (ir.model.fields) records.\\n\\nThis operation is allowed for the following groups:\\n\\t- Marketing Automation/User\\n\\t- Marketing Director\\n\\t- Access Rights\\n\\nContact your administrator to request access if necessary.\">"
+    "detail": "<ProtocolError for uriah-apolitical-masako.ngrok-free.dev/xmlrpc/2/object: 404 Not Found>"
   },
   {
     "tc": 310,
     "module": "account.account",
     "action": "Read",
-    "status": "PASS",
-    "detail": "Found 5 records"
+    "status": "FAIL",
+    "detail": "<Fault 4: \"You are not allowed to access 'Fields' (ir.model.fields) records.\\n\\nThis operation is allowed for the following groups:\\n\\t- Marketing Automation/User\\n\\t- Marketing Director\\n\\t- Access Rights\\n\\nContact your administrator to request access if necessary.\">"
   },
   {
     "tc": 310,
@@ -563,8 +493,8 @@
     "tc": 311,
     "module": "account.analytic.account",
     "action": "Read",
-    "status": "PASS",
-    "detail": "Found 5 records"
+    "status": "FAIL",
+    "detail": "<Fault 4: \"You are not allowed to access 'Fields' (ir.model.fields) records.\\n\\nThis operation is allowed for the following groups:\\n\\t- Marketing Automation/User\\n\\t- Marketing Director\\n\\t- Access Rights\\n\\nContact your administrator to request access if necessary.\">"
   },
   {
     "tc": 311,
@@ -578,7 +508,7 @@
     "module": "Timesheet",
     "action": "Read",
     "status": "FAIL",
-    "detail": "<Fault 2: \"Object Timesheet doesn't exist\">"
+    "detail": "<Fault 4: \"You are not allowed to access 'Fields' (ir.model.fields) records.\\n\\nThis operation is allowed for the following groups:\\n\\t- Marketing Automation/User\\n\\t- Marketing Director\\n\\t- Access Rights\\n\\nContact your administrator to request access if necessary.\">"
   },
   {
     "tc": 312,
@@ -592,7 +522,7 @@
     "module": "hr.applicant",
     "action": "Read",
     "status": "FAIL",
-    "detail": "<Fault 4: \"You are not allowed to access 'Applicant' (hr.applicant) records.\\n\\nThis operation is allowed for the following groups:\\n\\t- Recruitment/Interviewer\\n\\t- Recruitment/Officer: Manage all applicants\\n\\t- Administrative\\n\\t- Administrative Responsible\\n\\t- HR\\n\\t- HR Responsible\\n\\t- Management Control\\n\\t- Office Manager\\n\\t- Recruiter\\n\\t- Sales(cold)\\n\\t- Sales Manager\\n\\t- Team Director\\n\\t- Team Manager\\n\\t- VPs\\n\\t- Webmaster\\n\\nContact your administrator to request access if necessary.\">"
+    "detail": "<Fault 4: \"You are not allowed to access 'Fields' (ir.model.fields) records.\\n\\nThis operation is allowed for the following groups:\\n\\t- Marketing Automation/User\\n\\t- Marketing Director\\n\\t- Access Rights\\n\\nContact your administrator to request access if necessary.\">"
   },
   {
     "tc": 313,
@@ -605,8 +535,8 @@
     "tc": 314,
     "module": "hr.employee.public",
     "action": "Read",
-    "status": "PASS",
-    "detail": "Found 5 records"
+    "status": "FAIL",
+    "detail": "<Fault 4: \"You are not allowed to access 'Fields' (ir.model.fields) records.\\n\\nThis operation is allowed for the following groups:\\n\\t- Marketing Automation/User\\n\\t- Marketing Director\\n\\t- Access Rights\\n\\nContact your administrator to request access if necessary.\">"
   },
   {
     "tc": 314,
@@ -619,8 +549,8 @@
     "tc": 315,
     "module": "gamification.challenge",
     "action": "Read",
-    "status": "PASS",
-    "detail": "Found 5 records"
+    "status": "FAIL",
+    "detail": "<Fault 4: \"You are not allowed to access 'Fields' (ir.model.fields) records.\\n\\nThis operation is allowed for the following groups:\\n\\t- Marketing Automation/User\\n\\t- Marketing Director\\n\\t- Access Rights\\n\\nContact your administrator to request access if necessary.\">"
   },
   {
     "tc": 315,
@@ -633,8 +563,8 @@
     "tc": 316,
     "module": "gamification.goal",
     "action": "Read",
-    "status": "PASS",
-    "detail": "Found 5 records"
+    "status": "FAIL",
+    "detail": "<Fault 4: \"You are not allowed to access 'Fields' (ir.model.fields) records.\\n\\nThis operation is allowed for the following groups:\\n\\t- Marketing Automation/User\\n\\t- Marketing Director\\n\\t- Access Rights\\n\\nContact your administrator to request access if necessary.\">"
   },
   {
     "tc": 316,
@@ -647,8 +577,8 @@
     "tc": 317,
     "module": "account.journal",
     "action": "Read",
-    "status": "PASS",
-    "detail": "Found 5 records"
+    "status": "FAIL",
+    "detail": "<Fault 4: \"You are not allowed to access 'Fields' (ir.model.fields) records.\\n\\nThis operation is allowed for the following groups:\\n\\t- Marketing Automation/User\\n\\t- Marketing Director\\n\\t- Access Rights\\n\\nContact your administrator to request access if necessary.\">"
   },
   {
     "tc": 317,
@@ -661,8 +591,8 @@
     "tc": 318,
     "module": "account.payment",
     "action": "Read",
-    "status": "PASS",
-    "detail": "Found 5 records"
+    "status": "FAIL",
+    "detail": "<Fault 4: \"You are not allowed to access 'Fields' (ir.model.fields) records.\\n\\nThis operation is allowed for the following groups:\\n\\t- Marketing Automation/User\\n\\t- Marketing Director\\n\\t- Access Rights\\n\\nContact your administrator to request access if necessary.\">"
   },
   {
     "tc": 318,
@@ -675,8 +605,8 @@
     "tc": 319,
     "module": "account.tax",
     "action": "Read",
-    "status": "PASS",
-    "detail": "Found 5 records"
+    "status": "FAIL",
+    "detail": "<Fault 4: \"You are not allowed to access 'Fields' (ir.model.fields) records.\\n\\nThis operation is allowed for the following groups:\\n\\t- Marketing Automation/User\\n\\t- Marketing Director\\n\\t- Access Rights\\n\\nContact your administrator to request access if necessary.\">"
   },
   {
     "tc": 319,
@@ -689,8 +619,8 @@
     "tc": 320,
     "module": "product.template",
     "action": "Read",
-    "status": "PASS",
-    "detail": "Found 5 records"
+    "status": "FAIL",
+    "detail": "<Fault 4: \"You are not allowed to access 'Fields' (ir.model.fields) records.\\n\\nThis operation is allowed for the following groups:\\n\\t- Marketing Automation/User\\n\\t- Marketing Director\\n\\t- Access Rights\\n\\nContact your administrator to request access if necessary.\">"
   },
   {
     "tc": 320,
@@ -703,8 +633,8 @@
     "tc": 321,
     "module": "product.product",
     "action": "Read",
-    "status": "PASS",
-    "detail": "Found 5 records"
+    "status": "FAIL",
+    "detail": "<Fault 4: \"You are not allowed to access 'Fields' (ir.model.fields) records.\\n\\nThis operation is allowed for the following groups:\\n\\t- Marketing Automation/User\\n\\t- Marketing Director\\n\\t- Access Rights\\n\\nContact your administrator to request access if necessary.\">"
   },
   {
     "tc": 321,
@@ -717,8 +647,8 @@
     "tc": 322,
     "module": "project.project.stage",
     "action": "Read",
-    "status": "PASS",
-    "detail": "Found 5 records"
+    "status": "FAIL",
+    "detail": "<Fault 4: \"You are not allowed to access 'Fields' (ir.model.fields) records.\\n\\nThis operation is allowed for the following groups:\\n\\t- Marketing Automation/User\\n\\t- Marketing Director\\n\\t- Access Rights\\n\\nContact your administrator to request access if necessary.\">"
   },
   {
     "tc": 322,
@@ -731,8 +661,8 @@
     "tc": 323,
     "module": "sale.order.line",
     "action": "Read",
-    "status": "PASS",
-    "detail": "Found 5 records"
+    "status": "FAIL",
+    "detail": "<Fault 4: \"You are not allowed to access 'Fields' (ir.model.fields) records.\\n\\nThis operation is allowed for the following groups:\\n\\t- Marketing Automation/User\\n\\t- Marketing Director\\n\\t- Access Rights\\n\\nContact your administrator to request access if necessary.\">"
   },
   {
     "tc": 323,
@@ -745,36 +675,36 @@
     "tc": 324,
     "module": "crm.stage",
     "action": "Read",
-    "status": "PASS",
-    "detail": "Found 5 records"
+    "status": "FAIL",
+    "detail": "<ProtocolError for uriah-apolitical-masako.ngrok-free.dev/xmlrpc/2/object: 503 Service Unavailable>"
   },
   {
     "tc": 324,
     "module": "crm.stage",
     "action": "Generic test",
     "status": "FAIL",
-    "detail": "<Fault 4: \"You are not allowed to access 'Fields' (ir.model.fields) records.\\n\\nThis operation is allowed for the following groups:\\n\\t- Marketing Automation/User\\n\\t- Marketing Director\\n\\t- Access Rights\\n\\nContact your administrator to request access if necessary.\">"
+    "detail": "<ProtocolError for uriah-apolitical-masako.ngrok-free.dev/xmlrpc/2/object: 404 Not Found>"
   },
   {
     "tc": 325,
     "module": "crm.lost.reason",
     "action": "Read",
-    "status": "PASS",
-    "detail": "Found 5 records"
+    "status": "FAIL",
+    "detail": "<ProtocolError for uriah-apolitical-masako.ngrok-free.dev/xmlrpc/2/object: 404 Not Found>"
   },
   {
     "tc": 325,
     "module": "crm.lost.reason",
     "action": "Generic test",
     "status": "FAIL",
-    "detail": "<Fault 4: \"You are not allowed to access 'Fields' (ir.model.fields) records.\\n\\nThis operation is allowed for the following groups:\\n\\t- Marketing Automation/User\\n\\t- Marketing Director\\n\\t- Access Rights\\n\\nContact your administrator to request access if necessary.\">"
+    "detail": "<ProtocolError for uriah-apolitical-masako.ngrok-free.dev/xmlrpc/2/object: 404 Not Found>"
   },
   {
     "tc": 326,
     "module": "product.pricelist",
     "action": "Read",
-    "status": "PASS",
-    "detail": "Found 5 records"
+    "status": "FAIL",
+    "detail": "<ProtocolError for uriah-apolitical-masako.ngrok-free.dev/xmlrpc/2/object: 404 Not Found>"
   },
   {
     "tc": 326,
@@ -787,8 +717,8 @@
     "tc": 327,
     "module": "website",
     "action": "Read",
-    "status": "PASS",
-    "detail": "Found 5 records"
+    "status": "FAIL",
+    "detail": "<Fault 4: \"You are not allowed to access 'Fields' (ir.model.fields) records.\\n\\nThis operation is allowed for the following groups:\\n\\t- Marketing Automation/User\\n\\t- Marketing Director\\n\\t- Access Rights\\n\\nContact your administrator to request access if necessary.\">"
   },
   {
     "tc": 327,
@@ -801,8 +731,8 @@
     "tc": 328,
     "module": "helpdesk.team",
     "action": "Read",
-    "status": "PASS",
-    "detail": "Found 5 records"
+    "status": "FAIL",
+    "detail": "<Fault 4: \"You are not allowed to access 'Fields' (ir.model.fields) records.\\n\\nThis operation is allowed for the following groups:\\n\\t- Marketing Automation/User\\n\\t- Marketing Director\\n\\t- Access Rights\\n\\nContact your administrator to request access if necessary.\">"
   },
   {
     "tc": 328,
@@ -816,7 +746,7 @@
     "module": "social.media",
     "action": "Read",
     "status": "FAIL",
-    "detail": "<Fault 4: \"You are not allowed to access 'Social Media' (social.media) records.\\n\\nThis operation is allowed for the following groups:\\n\\t- Social Marketing/Social Manager\\n\\t- Social Marketing/Social User\\n\\nContact your administrator to request access if necessary.\">"
+    "detail": "<Fault 4: \"You are not allowed to access 'Fields' (ir.model.fields) records.\\n\\nThis operation is allowed for the following groups:\\n\\t- Marketing Automation/User\\n\\t- Marketing Director\\n\\t- Access Rights\\n\\nContact your administrator to request access if necessary.\">"
   },
   {
     "tc": 329,
@@ -829,36 +759,36 @@
     "tc": 330,
     "module": "hr.attendance",
     "action": "Read",
-    "status": "PASS",
-    "detail": "Found 0 records"
+    "status": "FAIL",
+    "detail": "<Fault 4: \"You are not allowed to access 'Fields' (ir.model.fields) records.\\n\\nThis operation is allowed for the following groups:\\n\\t- Marketing Automation/User\\n\\t- Marketing Director\\n\\t- Access Rights\\n\\nContact your administrator to request access if necessary.\">"
   },
   {
     "tc": 330,
     "module": "hr.attendance",
     "action": "Generic test",
     "status": "FAIL",
-    "detail": "<Fault 4: \"You are not allowed to access 'Fields' (ir.model.fields) records.\\n\\nThis operation is allowed for the following groups:\\n\\t- Marketing Automation/User\\n\\t- Marketing Director\\n\\t- Access Rights\\n\\nContact your administrator to request access if necessary.\">"
+    "detail": "<ProtocolError for uriah-apolitical-masako.ngrok-free.dev/xmlrpc/2/object: 503 Service Unavailable>"
   },
   {
     "tc": 331,
     "module": "glive.change.request",
     "action": "Read",
     "status": "FAIL",
-    "detail": "<Fault 4: \"You are not allowed to access 'Go Live Change Request' (glive.change.request) records.\\n\\nThis operation is allowed for the following groups:\\n\\t- Administrative\\n\\t- Administrative Responsible\\n\\t- CEO\\n\\t- CFO\\n\\t- CFO For His Company\\n\\t- Direction and Applied Approve\\n\\t- DRH\\n\\t- HR\\n\\t- HR Responsible\\n\\t- Legal\\n\\t- Management Control\\n\\t- Manager Approve\\n\\t- Operation\\n\\t- Operation On Boarder\\n\\t- Quality Manager\\n\\t- Sales(Hot)\\n\\t- Sales Manager\\n\\t- Team Director\\n\\t- Team Manager\\n\\t- VP of Quality and Knowledge\\n\\t- VPs\\n\\t- Role / Administrator\\n\\nContact your administrator to request access if necessary.\">"
+    "detail": "<ProtocolError for uriah-apolitical-masako.ngrok-free.dev/xmlrpc/2/object: 404 Not Found>"
   },
   {
     "tc": 331,
     "module": "glive.change.request",
     "action": "Generic test",
     "status": "FAIL",
-    "detail": "<Fault 4: \"You are not allowed to access 'Fields' (ir.model.fields) records.\\n\\nThis operation is allowed for the following groups:\\n\\t- Marketing Automation/User\\n\\t- Marketing Director\\n\\t- Access Rights\\n\\nContact your administrator to request access if necessary.\">"
+    "detail": "<ProtocolError for uriah-apolitical-masako.ngrok-free.dev/xmlrpc/2/object: 404 Not Found>"
   },
   {
     "tc": 332,
     "module": "hr.leave",
     "action": "Read",
     "status": "FAIL",
-    "detail": "<Fault 2: 'RPC call on hr.leave is not allowed'>"
+    "detail": "<ProtocolError for uriah-apolitical-masako.ngrok-free.dev/xmlrpc/2/object: 404 Not Found>"
   },
   {
     "tc": 332,
@@ -871,8 +801,8 @@
     "tc": 333,
     "module": "documents.document",
     "action": "Read",
-    "status": "PASS",
-    "detail": "Found 5 records"
+    "status": "FAIL",
+    "detail": "<Fault 4: \"You are not allowed to access 'Fields' (ir.model.fields) records.\\n\\nThis operation is allowed for the following groups:\\n\\t- Marketing Automation/User\\n\\t- Marketing Director\\n\\t- Access Rights\\n\\nContact your administrator to request access if necessary.\">"
   },
   {
     "tc": 333,
@@ -886,7 +816,7 @@
     "module": "glive.change.request",
     "action": "Read",
     "status": "FAIL",
-    "detail": "<Fault 4: \"You are not allowed to access 'Go Live Change Request' (glive.change.request) records.\\n\\nThis operation is allowed for the following groups:\\n\\t- Administrative\\n\\t- Administrative Responsible\\n\\t- CEO\\n\\t- CFO\\n\\t- CFO For His Company\\n\\t- Direction and Applied Approve\\n\\t- DRH\\n\\t- HR\\n\\t- HR Responsible\\n\\t- Legal\\n\\t- Management Control\\n\\t- Manager Approve\\n\\t- Operation\\n\\t- Operation On Boarder\\n\\t- Quality Manager\\n\\t- Sales(Hot)\\n\\t- Sales Manager\\n\\t- Team Director\\n\\t- Team Manager\\n\\t- VP of Quality and Knowledge\\n\\t- VPs\\n\\t- Role / Administrator\\n\\nContact your administrator to request access if necessary.\">"
+    "detail": "<Fault 4: \"You are not allowed to access 'Fields' (ir.model.fields) records.\\n\\nThis operation is allowed for the following groups:\\n\\t- Marketing Automation/User\\n\\t- Marketing Director\\n\\t- Access Rights\\n\\nContact your administrator to request access if necessary.\">"
   },
   {
     "tc": 334,
@@ -900,7 +830,7 @@
     "module": "hr.goal",
     "action": "Read",
     "status": "FAIL",
-    "detail": "<Fault 2: \"Object hr.goal doesn't exist\">"
+    "detail": "<Fault 4: \"You are not allowed to access 'Fields' (ir.model.fields) records.\\n\\nThis operation is allowed for the following groups:\\n\\t- Marketing Automation/User\\n\\t- Marketing Director\\n\\t- Access Rights\\n\\nContact your administrator to request access if necessary.\">"
   },
   {
     "tc": 335,
@@ -914,7 +844,7 @@
     "module": "hr.challenge",
     "action": "Read",
     "status": "FAIL",
-    "detail": "<Fault 2: \"Object hr.challenge doesn't exist\">"
+    "detail": "<Fault 4: \"You are not allowed to access 'Fields' (ir.model.fields) records.\\n\\nThis operation is allowed for the following groups:\\n\\t- Marketing Automation/User\\n\\t- Marketing Director\\n\\t- Access Rights\\n\\nContact your administrator to request access if necessary.\">"
   },
   {
     "tc": 336,
@@ -927,8 +857,8 @@
     "tc": 337,
     "module": "hr.attendance",
     "action": "Read",
-    "status": "PASS",
-    "detail": "Found 0 records"
+    "status": "FAIL",
+    "detail": "<Fault 4: \"You are not allowed to access 'Fields' (ir.model.fields) records.\\n\\nThis operation is allowed for the following groups:\\n\\t- Marketing Automation/User\\n\\t- Marketing Director\\n\\t- Access Rights\\n\\nContact your administrator to request access if necessary.\">"
   },
   {
     "tc": 337,
@@ -942,7 +872,7 @@
     "module": "hr.applicant",
     "action": "Read",
     "status": "FAIL",
-    "detail": "<Fault 4: \"You are not allowed to access 'Applicant' (hr.applicant) records.\\n\\nThis operation is allowed for the following groups:\\n\\t- Recruitment/Interviewer\\n\\t- Recruitment/Officer: Manage all applicants\\n\\t- Administrative\\n\\t- Administrative Responsible\\n\\t- HR\\n\\t- HR Responsible\\n\\t- Management Control\\n\\t- Office Manager\\n\\t- Recruiter\\n\\t- Sales(cold)\\n\\t- Sales Manager\\n\\t- Team Director\\n\\t- Team Manager\\n\\t- VPs\\n\\t- Webmaster\\n\\nContact your administrator to request access if necessary.\">"
+    "detail": "<Fault 4: \"You are not allowed to access 'Fields' (ir.model.fields) records.\\n\\nThis operation is allowed for the following groups:\\n\\t- Marketing Automation/User\\n\\t- Marketing Director\\n\\t- Access Rights\\n\\nContact your administrator to request access if necessary.\">"
   },
   {
     "tc": 338,
@@ -956,7 +886,7 @@
     "module": "website.page",
     "action": "Read",
     "status": "FAIL",
-    "detail": "<Fault 4: \"You are not allowed to access 'Page' (website.page) records.\\n\\nThis operation is allowed for the following groups:\\n\\t- Website/Editor and Designer\\n\\nContact your administrator to request access if necessary.\">"
+    "detail": "<Fault 4: \"You are not allowed to access 'Fields' (ir.model.fields) records.\\n\\nThis operation is allowed for the following groups:\\n\\t- Marketing Automation/User\\n\\t- Marketing Director\\n\\t- Access Rights\\n\\nContact your administrator to request access if necessary.\">"
   },
   {
     "tc": 339,
@@ -970,7 +900,7 @@
     "module": "marketing.campaign",
     "action": "Read",
     "status": "FAIL",
-    "detail": "<Fault 4: \"You are not allowed to access 'Marketing Campaign' (marketing.campaign) records.\\n\\nThis operation is allowed for the following groups:\\n\\t- Marketing Automation/User\\n\\nContact your administrator to request access if necessary.\">"
+    "detail": "<Fault 4: \"You are not allowed to access 'Fields' (ir.model.fields) records.\\n\\nThis operation is allowed for the following groups:\\n\\t- Marketing Automation/User\\n\\t- Marketing Director\\n\\t- Access Rights\\n\\nContact your administrator to request access if necessary.\">"
   },
   {
     "tc": 340,
@@ -984,7 +914,7 @@
     "module": "mail.mass_mailing",
     "action": "Read",
     "status": "FAIL",
-    "detail": "<Fault 2: \"Object mail.mass_mailing doesn't exist\">"
+    "detail": "<Fault 4: \"You are not allowed to access 'Fields' (ir.model.fields) records.\\n\\nThis operation is allowed for the following groups:\\n\\t- Marketing Automation/User\\n\\t- Marketing Director\\n\\t- Access Rights\\n\\nContact your administrator to request access if necessary.\">"
   },
   {
     "tc": 341,
@@ -998,7 +928,7 @@
     "module": "social.post",
     "action": "Read",
     "status": "FAIL",
-    "detail": "<Fault 4: \"You are not allowed to access 'Social Post' (social.post) records.\\n\\nThis operation is allowed for the following groups:\\n\\t- Social Marketing/Social Manager\\n\\t- Social Marketing/Social User\\n\\nContact your administrator to request access if necessary.\">"
+    "detail": "<Fault 4: \"You are not allowed to access 'Fields' (ir.model.fields) records.\\n\\nThis operation is allowed for the following groups:\\n\\t- Marketing Automation/User\\n\\t- Marketing Director\\n\\t- Access Rights\\n\\nContact your administrator to request access if necessary.\">"
   },
   {
     "tc": 342,

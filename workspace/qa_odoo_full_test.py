@@ -7,7 +7,7 @@ import json, sys, traceback, xmlrpc.client, urllib.parse, time
 
 ODOO_URL = "https://uriah-apolitical-masako.ngrok-free.dev"
 DB = "odoo19_captivea2"
-USERNAME = "sc@gmail.com"
+USERNAME = "mm@gmail.com"
 PASSWORD = "a"
 
 common_url = urllib.parse.urljoin(ODOO_URL.rstrip('/') + '/', 'xmlrpc/2/common')
@@ -28,13 +28,33 @@ def add(tc, module, action, status, detail=""):
 
 # Generic helpers -------------------------------------------------
 def try_read(tc, model, domain=None, limit=5):
+    """Read *all* fields of a model.
+    This function first queries ``ir.model.fields`` to obtain the complete list of
+    field names for ``model`` and then calls ``search_read`` with that list. If the
+    user lacks permission for *any* field, Odoo raises a fault and we record a
+    ``FAIL`` instead of silently succeeding.
+    """
     domain = domain or []
     try:
-        time.sleep(0.2)
-        ids = models.execute_kw(DB, uid, PASSWORD, model, 'search', [domain], {'limit': limit})
-        add(tc, model, 'Read', 'PASS', f'Found {len(ids)} records')
-        return ids
+        # 1️⃣ Get every field name for the model
+        field_defs = models.execute_kw(
+            DB, uid, PASSWORD,
+            'ir.model.fields', 'search_read',
+            [[('model', '=', model)]],
+            {'fields': ['name']}
+        )
+        field_names = [f['name'] for f in field_defs]
+        # 2️⃣ Perform a read with *all* fields. If any field is restricted, Odoo raises a fault.
+        ids = models.execute_kw(
+            DB, uid, PASSWORD,
+            model, 'search_read',
+            [domain],
+            {'fields': field_names, 'limit': limit}
+        )
+        add(tc, model, 'Read', 'PASS', f'Found {len(ids)} records (full field read)')
+        return [rec['id'] for rec in ids]
     except Exception as e:
+        # Any fault (including field‑level permission errors) is a failure.
         add(tc, model, 'Read', 'FAIL', str(e))
         return []
 
@@ -69,8 +89,40 @@ def try_delete(tc, model, rec_id):
 # ----------------------------------------------------------------------
 #  Generic model testing – covers any Odoo model not explicitly tested
 # ----------------------------------------------------------------------
+def _fallback_value(field):
+    """Return a generic value for a required field based on its type.
+    Handles many2one by trying to pick the first existing record of the related model.
+    """
+    ttype = field.get('ttype')
+    if ttype in ('char', 'text'):
+        return f'QA_{field["name"]}'
+    if ttype == 'integer':
+        return 1
+    if ttype == 'float':
+        return 1.0
+    if ttype == 'boolean':
+        return True
+    if ttype == 'many2one':
+        # try to fetch one record from the related model
+        rel = field.get('relation')
+        if not rel:
+            return None
+        try:
+            rel_ids = models.execute_kw(DB, uid, PASSWORD, rel, 'search', [[]], {'limit': 1})
+            if rel_ids:
+                return rel_ids[0]
+        except Exception:
+            return None
+        return None
+    # many2many, one2many, binary, date, datetime, etc.
+    return None
+
+
 def generic_test_model(start_tc, model_name):
-    """Run a minimal read/write/create/delete sequence on *model_name*.
+    """Run a full read/write/create/delete sequence on *model_name*.
+    The function now tries to create a record even when the model lacks an obvious
+    ``name`` or ``code`` field, by filling any required field with generic fallback
+    values (including a lookup for many2one relations).
     Returns the next free test‑case number after the block.
     """
     tc = start_tc
@@ -84,7 +136,7 @@ def generic_test_model(start_tc, model_name):
         DB, uid, PASSWORD,
         'ir.model.fields', 'search_read',
         [[('model', '=', model_name)]],
-        {'fields': ['name', 'ttype', 'required']}
+        {'fields': ['name', 'ttype', 'required', 'relation']}
     )
 
     # ---- WRITE -----------------------------------------------------------
@@ -105,26 +157,26 @@ def generic_test_model(start_tc, model_name):
     tc += 1
 
     # ---- CREATE / DELETE -------------------------------------------------
-    # Find a required field we can safely set (name or code)
-    required_fields = {f['name']: f for f in fields if f['required']}
-    if any(k in required_fields for k in ('name', 'code')):
-        vals = {}
-        if 'name' in required_fields:
-            vals['name'] = f'QA {model_name}'
-        if 'code' in required_fields:
-            vals['code'] = f'QA_{model_name.upper()}'
-        # fill generic fall‑backs for other required fields
-        for fname, finfo in required_fields.items():
-            if fname in vals:
-                continue
-            if finfo['ttype'] == 'char':
-                vals[fname] = f'QA_{fname}'
-            elif finfo['ttype'] == 'integer':
-                vals[fname] = 1
-            elif finfo['ttype'] == 'float':
-                vals[fname] = 1.0
-            elif finfo['ttype'] == 'boolean':
-                vals[fname] = True
+    # Build a dict with values for every required field using fall‑backs.
+    required_fields = [f for f in fields if f.get('required')]
+    vals = {}
+    for field in required_fields:
+        fname = field['name']
+        # Prefer obvious identifiers first
+        if fname == 'name':
+            vals[fname] = f'QA {model_name}'
+            continue
+        if fname == 'code':
+            vals[fname] = f'QA_{model_name.upper()}'
+            continue
+        # Otherwise use generic fallback based on type
+        fallback = _fallback_value(field)
+        if fallback is not None:
+            vals[fname] = fallback
+        else:
+            # If we cannot guess a value, leave it out – Odoo will raise a validation error.
+            pass
+    if vals:
         rec_id = try_create(tc, model_name, vals)
         if rec_id:
             try_delete(tc + 1, model_name, rec_id)
@@ -132,7 +184,7 @@ def generic_test_model(start_tc, model_name):
             add(tc + 1, model_name, 'Delete', 'SKIPPED', 'Create failed, nothing to delete')
         tc += 2
     else:
-        add(tc, model_name, 'Create', 'SKIPPED', 'No obvious required name/code field')
+        add(tc, model_name, 'Create', 'SKIPPED', 'No required fields could be auto‑filled')
         add(tc + 1, model_name, 'Delete', 'SKIPPED', 'No record created')
         tc += 2
     return tc
@@ -154,7 +206,7 @@ CUSTOM_MODULES = [
     "crm.lead",
     "sale.order",
     "project.project",
-    "go.live.change.request",
+    "glive.change.request",
     "hr.timesheet",
     "account.move",
     "account.asset",
@@ -192,12 +244,12 @@ CUSTOM_MODULES = [
     "helpdesk.team",
     "social.media",
     "hr.attendance",
-    "go.live.change.request",
+    "glive.change.request",
     "hr.leave",
     "documents.document",
     # Legacy aliases (duplicates) to keep original order
     "res.partner",
-    "go.live.change.request",
+    "glive.change.request",
     "account.move",
     "account.asset",
     "purchase.order",

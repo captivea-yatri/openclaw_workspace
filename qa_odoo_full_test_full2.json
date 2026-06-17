@@ -144,14 +144,14 @@
     "module": "project.task",
     "action": "Create",
     "status": "PASS",
-    "detail": "Created id=225164"
+    "detail": "Created id=225165"
   },
   {
     "tc": 75,
     "module": "project.task",
     "action": "Delete",
     "status": "SKIPPED",
-    "detail": "Skipped deletion of id=225164"
+    "detail": "Skipped deletion of id=225165"
   },
   {
     "tc": 76,
@@ -186,14 +186,14 @@
     "module": "account.analytic.line",
     "action": "Create",
     "status": "PASS",
-    "detail": "Created id=575020"
+    "detail": "Created id=575021"
   },
   {
     "tc": 79,
     "module": "account.analytic.line",
     "action": "Delete",
     "status": "SKIPPED",
-    "detail": "Skipped deletion of id=575020"
+    "detail": "Skipped deletion of id=575021"
   },
   {
     "tc": 80,
@@ -368,14 +368,14 @@
     "module": "helpdesk.ticket",
     "action": "Create",
     "status": "PASS",
-    "detail": "Created id=11413"
+    "detail": "Created id=11414"
   },
   {
     "tc": 119,
     "module": "helpdesk.ticket",
     "action": "Delete",
     "status": "SKIPPED",
-    "detail": "Skipped deletion of id=11413"
+    "detail": "Skipped deletion of id=11414"
   },
   {
     "tc": 120,
@@ -619,22 +619,22 @@
     "tc": 315,
     "module": "gamification.challenge",
     "action": "Read",
-    "status": "PASS",
-    "detail": "Found 5 records"
+    "status": "FAIL",
+    "detail": "<ProtocolError for uriah-apolitical-masako.ngrok-free.dev/xmlrpc/2/object: 503 Service Unavailable>"
   },
   {
     "tc": 315,
     "module": "gamification.challenge",
     "action": "Generic test",
     "status": "FAIL",
-    "detail": "<Fault 4: \"You are not allowed to access 'Fields' (ir.model.fields) records.\\n\\nThis operation is allowed for the following groups:\\n\\t- Marketing Automation/User\\n\\t- Marketing Director\\n\\t- Access Rights\\n\\nContact your administrator to request access if necessary.\">"
+    "detail": "<ProtocolError for uriah-apolitical-masako.ngrok-free.dev/xmlrpc/2/object: 404 Not Found>"
   },
   {
     "tc": 316,
     "module": "gamification.goal",
     "action": "Read",
-    "status": "PASS",
-    "detail": "Found 5 records"
+    "status": "FAIL",
+    "detail": "<ProtocolError for uriah-apolitical-masako.ngrok-free.dev/xmlrpc/2/object: 404 Not Found>"
   },
   {
     "tc": 316,
