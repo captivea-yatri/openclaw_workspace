@@ -13,7 +13,7 @@ from urllib.parse import urljoin
 # ---------------------------------------------------------------------------
 # Configuration – edit only if the Odoo instance changes
 # ---------------------------------------------------------------------------
-ODOO_URL = "https://aflutter-marxism-creamer.ngrok-free.dev"
+ODOO_URL = "https://uriah-apolitical-masako.ngrok-free.dev"
 DB       = "odoo19_captivea2"
 ADMIN    = "admin1"
 PASS     = "a"

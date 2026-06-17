@@ -1,19 +1,18 @@
 {
-  "timestamp": 1781086252,
-  "partner_id": 2338356,
-  "portal_user_id": 15249,
-  "sales_order_id": 8722,
-  "project_id": 2944,
-  "invoice_id": 344294,
-  "task_id": 225086,
-  "subtask_id": 225087,
+  "timestamp": 1781695932,
+  "partner_id": 2338584,
+  "portal_user_id": 15272,
+  "sales_order_id": 8832,
+  "project_id": 2957,
+  "invoice_id": 344332,
+  "task_id": 225173,
+  "subtask_id": 225174,
   "colour_results": {
     "red": 1
   },
-  "final_project_colour": 1,
+  "final_project_colour": 0,
   "collaborators": [
-    2338354,
-    2338355,
-    2338356
+    2338583,
+    2338584
   ]
 }
