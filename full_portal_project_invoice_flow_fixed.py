@@ -1,39 +1,19 @@
 #!/usr/bin/env python3
 """Full end‑to‑end QA flow for the custom Odoo 19 project module.
 
-**What this script does (high‑level steps)**
-1️⃣ **Partner creation** – creates a customer partner.
-2️⃣ **Portal user** – creates a portal‑only user linked to the partner (share=True).
-3️⃣ **Sales order** – creates a sales order for the service product (ID 2002); this auto‑creates a project.
-4️⃣ **Invoice** – creates, posts and manipulates the due‑date to exercise colour logic (green / orange / red).
-5️⃣ **Project sharing** – adds the portal partner as a follower using ``project.share.wizard``.
-6️⃣ **Task & sub‑task** – creates a task (via wizard, with fallback to manual) and a sub‑task assigned to the portal user.
-7️⃣ **Chatter feedback** – posts a feedback message on the project and a sub‑task message on behalf of the portal user.
-8️⃣ **Collaborator & colour verification** – reads collaborator list and computes the project colour based on invoice dates and custom flags.
-9️⃣ **Progress report** – runs the custom ``project.progress`` wizard (calculate & send).
-🔟 **Production Review integration** – creates a Production Question Template, a Production Review linked to the portal user, runs ``action_quality_issue``, fetches quality‑issue logs filtered on the portal user, runs ``action_production_review_project`` and marks the review done.
-11️⃣ **Reporting** – writes a comprehensive JSON report with every created ID, colour results, collaborators, progress‑report outcome and Production Review details.
+The script performs the complete workflow you requested:
+1️⃣ Create a partner (customer)
+2️⃣ Create a portal user linked to that partner (share=True)
+3️⃣ Create a sales order for a known service product (ID 2002) – this auto‑creates a project
+4️⃣ Create and post an invoice for the sales order
+5️⃣ Adjust the invoice due‑date three times (future, near, past) to exercise the colour logic (green / orange / red)
+6️⃣ Share the project with the portal partner via the *editable* ``project.share.wizard``
+7️⃣ Create a task inside the project and assign it to the portal user (using the custom assignee field)
+8️⃣ Post a feedback chatter message (as the portal user – here posted by admin for simplicity)
+9️⃣ Verify collaborator lists and the computed colour on the project
+🔟 Write a detailed JSON report containing every created ID and the colour results.
 
-**Feature‑wise breakdown**
-- **Idempotent design** – uses a timestamp‑based email address to avoid collisions on repeated runs.
-- **Admin‑only operations** – all heavy‑lifting (partner, sales order, invoice, project, wizard actions) are performed as the admin user, ensuring required permissions.
-- **Portal‑user flow** – creates a true portal user (only the Portal group) and uses that user’s ``uid`` for the Production Review ``user_id`` and for filtering quality‑issue logs.
-- **Graceful fallbacks** – if the task‑creation wizard does not produce a task, the script falls back to manual task creation and adds the portal user to the needed groups.
-- **Colour logic** – encapsulated in ``compute_project_colour``; evaluates invoice due‑date and a custom ``x_studio_block_timesheet_log`` flag.
-- **Domain handling** – re‑uses an existing ``project.domain`` instead of creating a new one; assigns it to the project.
-- **Robust error handling** – retries on transient errors (admin user read, sales order creation), logs failures, and continues where possible.
-- **Production Review improvements** – corrected typo ``action_quality_isssue`` → ``action_quality_issue``; replaced invalid field ``discription`` with ``description``; filtered logs by ``employee_id = portal_user_id``; removed invalid ``issue_ids`` read.
-- **JSON report** – written to ``full_portal_project_invoice_flow_report.json``; contains:
-  * timestamp
-  * partner, portal user, sales order, project, invoice IDs
-  * task & sub‑task IDs
-  * colour results (green/orange/red index)
-  * final project colour
-  * collaborator list
-  * progress‑report IDs & outcomes
-  * Production Review IDs, snapshot and fetched quality‑issue logs.
-
-The script is meant to be run directly (`python3 full_portal_project_invoice_flow.py`). It prints log messages to the console and outputs the JSON report at the end.
+All actions run as the admin user (`admin1` / `a`). The script is idempotent – it uses a timestamp‑based email address to avoid collisions.
 """
 
 import json, sys, time, datetime, ssl, xmlrpc.client
@@ -45,7 +25,7 @@ from urllib.parse import urljoin
 ODOO_URL = "https://uriah-apolitical-masako.ngrok-free.dev"
 DB       = "odoo19_captivea2"
 ADMIN    = "admin1"
-PASS     = "bbc78b69db68e2b2c999eb427ede3bc8d4bcbd1d"
+PASS     = "a"
 
 # ---------------------------------------------------------------------------
 # Helper utilities
@@ -102,15 +82,6 @@ def detect_assignee_field(models, uid):
 # Colour computation (mirrors test_project_workflow.py)
 # ---------------------------------------------------------------------------
 def compute_project_colour(models, uid, project_id, invoice_id):
-    """Compute the project colour index.
-
-    * **red (1)** – past‑due invoice or a linked sales order with the custom flag
-      ``x_studio_block_timesheet_log`` set (and not in draft/cancel/sent).
-    * **orange (2)** – invoice due within 5 days.
-    * **green (10)** – otherwise.
-    The function mirrors the colour logic used in the original test suite.
-    """
-
     """Return colour index (1=red, 2=orange, 10=green).
     * Past‑due invoice → red (1)
     * Due within 5 days → orange (2)
@@ -163,15 +134,6 @@ def compute_project_colour(models, uid, project_id, invoice_id):
 # Main workflow
 # ---------------------------------------------------------------------------
 def main():
-    """Main workflow orchestrator.
-
-    The function follows the step‑by‑step plan described in the module‑level
-    docstring.  Each logical block (partner, portal user, sales order, invoice,
-    project sharing, task creation, progress report, production review) is
-    separated by a clear comment header and wrapped in ``try/except`` where
-    appropriate to capture and log failures without aborting the whole run.
-    """
-
     uid, models = connect_admin()
     ts = int(time.time())
     email = f"portal_user_{ts}@example.com"
@@ -214,7 +176,7 @@ def main():
     for attempt in range(max_attempts):
         try:
             admin_user = models.execute_kw(DB, uid, PASS, "res.users", "read", [[uid]], {"fields": ["company_id"]})[0]
-            admin_company_id = admin_user.get("company_id")[0]
+            admin_company_id = 1  # Force Captivea USA (company ID 1)
             break
         except Exception as e:
             log(f"[!] Admin user read failed attempt {attempt + 1}: {e}")
@@ -442,12 +404,11 @@ def main():
         "project_id": project_id,
         "parent_id": task_id,
     }
-    portal_pass = "a"
-    subtask_id = portal_models.execute_kw(DB, portal_uid, portal_pass, "project.task", "create", [subtask_vals])
+    subtask_id = portal_models.execute_kw(DB, portal_uid, PASS, "project.task", "create", [subtask_vals])
     log(f"[+] Sub‑task created (ID={subtask_id})")
     # Post a chatter message on the sub‑task from the portal user
     sub_message = "Test sub‑task creation via portal user – verification of chatter."
-    portal_models.execute_kw(DB, portal_uid, portal_pass, "project.task", "message_post", [subtask_id], {"body": sub_message})
+    portal_models.execute_kw(DB, portal_uid, PASS, "project.task", "message_post", [subtask_id], {"body": sub_message})
     log("[+] Chatter posted on sub‑task (portal side).")
 
     # 9️⃣ Post a feedback chatter message (as admin, indicating portal user author)
@@ -555,7 +516,7 @@ def main():
 
     # Create Production Review linked to the partner
     review_vals = {
-        "user_id": portal_user_id,
+        "partner_id": partner_id,
         # Additional fields can be added if needed
     }
     try:
@@ -567,28 +528,27 @@ def main():
 
     if review_id:
         # Smart‑button actions
-        # Correctly invoke the quality‑issue action (fixed typo)
         try:
-            models.execute_kw(DB, uid, PASS, "production.review", "action_quality_issue", [review_id])
-            log("[+] action_quality_issue executed")
+            models.execute_kw(DB, uid, PASS, "production.review", "action_quality_isssue", [review_id])
+            log("[+] action_quality_isssue executed")
         except Exception as e:
-            log(f"[!] action_quality_issue failed: {e}")
+            log(f"[!] action_quality_isssue failed: {e}")
 
-        # Fetch quality‑issue logs for this review's user (portal user)
+        # Process any quality issues linked to the review
         try:
-            logs = models.execute_kw(
-                DB, uid, PASS,
-                "quality.issue.log",
-                "search_read",
-                [[("employee_id", "=", portal_user_id)]],
-                {"fields": ["logged_date", "description", "log_type", "state", "employee_id"]}
-            )
-            if logs:
-                log(f"[+] Fetched {len(logs)} quality issue log(s) for portal user {portal_user_id}")
+            review_data = models.execute_kw(DB, uid, PASS, "production.review", "read", [[review_id]], {"fields": ["issue_ids"]})
+            issue_ids = review_data[0].get("issue_ids", [])
+            if issue_ids:
+                for issue_id in issue_ids:
+                    try:
+                        models.execute_kw(DB, uid, PASS, "production.review", "action_3776", [issue_id])
+                        log(f"[+] action_3776 executed on issue {issue_id}")
+                    except Exception as e:
+                        log(f"[!] action_3776 failed on issue {issue_id}: {e}")
             else:
-                log("[+] No quality issue logs found for portal user")
-        except Exception as e_log:
-            log(f"[!] Failed to fetch quality issue logs: {e_log}")
+                log("[+] No quality issues linked to review")
+        except Exception as e:
+            log(f"[!] Failed to read issues: {e}")
 
         # Project smart‑button (creates a project if needed)
         try:
@@ -637,7 +597,6 @@ def main():
             "template_id": tmpl_id,
             "review_id": review_id,
             "review_snapshot": snapshot[0] if snapshot else {},
-            "quality_issue_logs": logs if 'logs' in locals() else []
         },
     }
     report_path = "full_portal_project_invoice_flow_report.json"

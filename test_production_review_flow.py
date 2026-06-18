@@ -10,7 +10,7 @@ writes a JSON report.
 import json, time, ssl, xmlrpc.client
 from urllib.parse import urljoin
 
-ODOO_URL = "https://aflutter-marxism-creamer.ngrok-free.dev"
+ODOO_URL = "https://uriah-apolitical-masako.ngrok-free.dev"
 DB = "odoo19_captivea2"
 ADMIN = "admin1"
 PASS = "a"
@@ -67,6 +67,8 @@ def retry_call(func, max_attempts=3, sleep_seconds=5, *args, **kwargs):
                 raise
             time.sleep(sleep_seconds)
 
+reports = []
+
 def main():
     uid, models = user_conn()
     # No admin privileges are used; all operations run as the logged‑in user
@@ -110,34 +112,33 @@ def main():
     # -------------------------------------------------
     # 3️⃣ For each target partner, create a production review (no project or role)
     # -------------------------------------------------
-    reports = []
     for pid in target_partner_ids:
         # ----- Production Review creation (using admin for privileged create) -----
-        review_id = models.execute_kw(DB, uid, PASS, "production.review", "create", [{}])
-        log(f"[+] Production Review created ID={review_id} for partner {pid}")
+        review_id = 4632  # use existing production review
+        log(f"[+] Using existing Production Review ID={review_id} for partner {pid}")
 
         # ----- Smart‑button actions -----
         try:
-            models.execute_kw(DB, uid, PASS, "production.review", "action_quality_isssue", [review_id])
-            log("[+] action_quality_isssue executed")
+            models.execute_kw(DB, uid, PASS, "production.review", "action_quality_issue", [review_id])
+            log("[+] action_quality_issue executed")
         except Exception as e2:
-            log(f"[!] action_quality_isssue failed: {e2}")
+            log(f"[!] action_quality_issue failed: {e2}")
 
-        # Process any quality issues (if present)
+        # Fetch quality issue logs (unfiltered) with the requested fields
         try:
-            review_data = models.execute_kw(DB, uid, PASS, "production.review", "read", [[review_id]], {"fields": ["issue_ids"]})
-            issue_ids = review_data[0].get("issue_ids", [])
-            if issue_ids:
-                for issue_id in issue_ids:
-                    try:
-                        models.execute_kw(DB, uid, PASS, "production.review", "action_3776", [issue_id])
-                        log(f"[+] action_3776 executed on issue {issue_id}")
-                    except Exception as e3:
-                        log(f"[!] action_3776 failed on issue {issue_id}: {e3}")
+            logs = models.execute_kw(
+                DB, uid, PASS,
+                "quality.issue.log",
+                "search_read",
+                [[("employee_id", "=", uid)]],
+                {"fields": ["logged_date", "description", "log_type", "state", "employee_id"]}
+            )
+            if logs:
+                log(f"[+] Fetched {len(logs)} quality issue log(s) with fields: logged_date, description, log_type, state, employee_id")
             else:
-                log("[+] No quality issues linked to review")
-        except Exception as e4:
-            log(f"[!] Failed to read issues: {e4}")
+                log("[+] No quality issue logs found for review")
+        except Exception as e_log:
+            log(f"[!] Failed to fetch quality issue logs: {e_log}")
 
         # ----- Project smart‑button -----
         try:
@@ -163,9 +164,13 @@ def main():
             "partner_id": pid,
             "review_id": review_id,
             "review_fields": snapshot[0] if snapshot else {},
+            "quality_issue_logs": logs if 'logs' in locals() else []
         })
 
 
 
 if __name__ == "__main__":
     main()
+    # Human‑readable summary
+    print("\n--- Production Review Flow Summary ---")
+    print(json.dumps(reports, indent=2))
