@@ -7,7 +7,7 @@ import json, sys, traceback, xmlrpc.client, urllib.parse, time
 
 ODOO_URL = "https://uriah-apolitical-masako.ngrok-free.dev"
 DB = "odoo19_captivea2"
-USERNAME = "mm@gmail.com"
+USERNAME = "admin1"
 PASSWORD = "a"
 
 common_url = urllib.parse.urljoin(ODOO_URL.rstrip('/') + '/', 'xmlrpc/2/common')
