@@ -17,7 +17,8 @@ import re
 from pathlib import Path
 
 # -------------------------- Configuration --------------------------
-ODOO_URL = "https://uriah-apolitical-masako.ng://uriah-apolitical-masako.ngrok-free.dev"
+# NOTE: the original URL had a stray "ng://" which broke the string. Use the correct URL.
+ODOO_URL = "https://uriah-apolitical-masako.ngrok-free.dev"
 DB = "odoo19_captivea2"
 USER = "admin1"
 PASSWORD = "a"
@@ -64,7 +65,7 @@ def main() -> int:
     results = []
     for script in SCRIPTS:
         print(f"\n=== Running {script['label']} ===")
-        res = run_script(script["path"], script["args"], script["label"])
+        res = run_script(script["path"], script["args"], script["label"]) 
         results.append(res)
         print(res["output"])
     print("\n===== Consolidated Test Summary =====")
@@ -83,12 +84,12 @@ if __name__ == "__main__":
 """
 Merged runner for three RPC/flow tests:
 
-1. full_inter_company_transaction_flow.py – inter‑company transaction flow
-2. models/test_product_account_restriction_rpc.py – product & account restriction
-3. models/test_ksc_auto_invoice_rpc.py – security‑deposit auto‑invoice flow
+1. full_inter_company_transaction_flow.py - inter-company transaction flow
+2. models/test_product_account_restriction_rpc.py - product & account restriction
+3. models/test_ksc_auto_invoice_rpc.py - security-deposit auto-invoice flow
 
 Executes each script with the same Odoo credentials, captures its stdout,
-extracts PASS/FAIL counts, and prints a concise human‑readable summary.
+extracts PASS/FAIL counts, and prints a concise human-readable summary.
 """
 
 import subprocess
@@ -108,7 +109,7 @@ SCRIPTS = [
     {
         "path": Path(__file__).parent / "full_inter_company_transaction_flow.py",
         "args": ["--url", ODOO_URL, "--db", DB, "--user", USER, "--password", PASSWORD],
-        "label": "Inter‑Company Transaction Flow",
+        "label": "Inter-Company Transaction Flow",
     },
     {
         "path": Path(__file__).parent / "models" / "test_product_account_restriction_rpc.py",
@@ -118,7 +119,7 @@ SCRIPTS = [
     {
         "path": Path(__file__).parent / "models" / "test_ksc_auto_invoice_rpc.py",
         "args": ["--url", ODOO_URL, "--db", DB, "--user", USER, "--password", PASSWORD, "--protocol", PROTOCOL],
-        "label": "Security Deposit Auto‑Invoice",
+        "label": "Security Deposit Auto-Invoice",
     },
 ]
 
@@ -130,7 +131,7 @@ def run_script(script_path: Path, args: list[str], label: str) -> dict:
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
     except subprocess.TimeoutExpired:
-        return {"label": label, "passed": 0, "failed": 0, "total": 0, "output": "TIMEOUT after 300 s"}
+        return {"label": label, "passed": 0, "failed": 0, "total": 0, "output": "TIMEOUT after 300 s"}
     out = proc.stdout + proc.stderr
     # Parse a line like "Result: X passed, Y failed"
     passed = failed = 0
@@ -153,12 +154,12 @@ def main() -> int:
 """
 Merged runner for three RPC/flow tests:
 
-1. full_inter_company_transaction_flow.py – inter‑company transaction flow
-2. models/test_product_account_restriction_rpc.py – product & account restriction
-3. models/test_ksc_auto_invoice_rpc.py – security‑deposit auto‑invoice flow
+1. full_inter_company_transaction_flow.py - inter-company transaction flow
+2. models/test_product_account_restriction_rpc.py - product & account restriction
+3. models/test_ksc_auto_invoice_rpc.py - security-deposit auto-invoice flow
 
 Executes each script with the same Odoo credentials, captures its stdout,
-extracts PASS/FAIL counts, and prints a concise human‑readable summary.
+extracts PASS/FAIL counts, and prints a concise human-readable summary.
 """
 
 import subprocess
@@ -178,7 +179,7 @@ SCRIPTS = [
     {
         "path": Path(__file__).parent / "full_inter_company_transaction_flow.py",
         "args": ["--url", ODOO_URL, "--db", DB, "--user", USER, "--password", PASSWORD],
-        "label": "Inter‑Company Transaction Flow",
+        "label": "Inter-Company Transaction Flow",
     },
     {
         "path": Path(__file__).parent / "models" / "test_product_account_restriction_rpc.py",
@@ -188,7 +189,7 @@ SCRIPTS = [
     {
         "path": Path(__file__).parent / "models" / "test_ksc_auto_invoice_rpc.py",
         "args": ["--url", ODOO_URL, "--db", DB, "--user", USER, "--password", PASSWORD, "--protocol", PROTOCOL],
-        "label": "Security Deposit Auto‑Invoice",
+        "label": "Security Deposit Auto-Invoice",
     },
 ]
 
@@ -200,7 +201,7 @@ def run_script(script_path: Path, args: list[str], label: str) -> dict:
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
     except subprocess.TimeoutExpired:
-        return {"label": label, "passed": 0, "failed": 0, "total": 0, "output": f"TIMEOUT after 300 s"}
+        return {"label": label, "passed": 0, "failed": 0, "total": 0, "output": f"TIMEOUT after 300 s"}
     out = proc.stdout + proc.stderr
     # Look for a line like "Result: X passed, Y failed"
     passed = failed = 0
@@ -233,12 +234,12 @@ def main() -> int:
 """
 Merged runner for three RPC/flow tests:
 
-1. full_inter_company_transaction_flow.py – inter‑company transaction flow
-2. models/test_product_account_restriction_rpc.py – product & account restriction
-3. models/test_ksc_auto_invoice_rpc.py – security‑deposit auto‑invoice flow
+1. full_inter_company_transaction_flow.py - inter-company transaction flow
+2. models/test_product_account_restriction_rpc.py - product & account restriction
+3. models/test_ksc_auto_invoice_rpc.py - security-deposit auto-invoice flow
 
 Executes each script with the same Odoo credentials, captures its stdout,
-extracts PASS/FAIL counts, and prints a concise human‑readable summary.
+extracts PASS/FAIL counts, and prints a concise human-readable summary.
 """
 
 import subprocess
@@ -258,7 +259,7 @@ SCRIPTS = [
     {
         "path": Path(__file__).parent / "full_inter_company_transaction_flow.py",
         "args": ["--url", ODOO_URL, "--db", DB, "--user", USER, "--password", PASSWORD],
-        "label": "Inter‑Company Transaction Flow",
+        "label": "Inter-Company Transaction Flow",
     },
     {
         "path": Path(__file__).parent / "models" / "test_product_account_restriction_rpc.py",
@@ -268,7 +269,7 @@ SCRIPTS = [
     {
         "path": Path(__file__).parent / "models" / "test_ksc_auto_invoice_rpc.py",
         "args": ["--url", ODOO_URL, "--db", DB, "--user", USER, "--password", PASSWORD, "--protocol", PROTOCOL],
-        "label": "Security Deposit Auto‑Invoice",
+        "label": "Security Deposit Auto-Invoice",
     },
 ]
 
@@ -280,7 +281,7 @@ def run_script(script_path: Path, args: list[str], label: str) -> dict:
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
     except subprocess.TimeoutExpired:
-        return {"label": label, "passed": 0, "failed": 0, "total": 0, "output": f"TIMEOUT after 300 s"}
+        return {"label": label, "passed": 0, "failed": 0, "total": 0, "output": f"TIMEOUT after 300 s"}
     out = proc.stdout + proc.stderr
     # Look for a line like "Result: X passed, Y failed"
     passed = failed = 0
@@ -308,13 +309,13 @@ def main() -> int:
 """
 Merged runner for three RPC/flow tests:
 
-1. full_inter_company_transaction_flow.py (inter‑company transaction flow)
+1. full_inter_company_transaction_flow.py (inter-company transaction flow)
 2. models/test_product_account_restriction_rpc.py (product & account restriction)
-3. models/test_ksc_auto_invoice_rpc.py (security‑deposit auto‑invoice flow)
+3. models/test_ksc_auto_invoice_rpc.py (security-deposit auto-invoice flow)
 
 The script executes each test with the same Odoo connection parameters,
 captures their stdout, extracts PASS/FAIL counts and prints a concise
-human‑readable summary.
+human-readable summary.
 """
 
 import subprocess
@@ -335,7 +336,7 @@ SCRIPTS = [
     {
         "path": Path(__file__).parent / "full_inter_company_transaction_flow.py",
         "args": ["--url", ODOO_URL, "--db", DB, "--user", USER, "--password", PASSWORD],
-        "label": "Inter‑Company Transaction Flow",
+        "label": "Inter-Company Transaction Flow",
     },
     {
         "path": Path(__file__).parent / "models" / "test_product_account_restriction_rpc.py",
