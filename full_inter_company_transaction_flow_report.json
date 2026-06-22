@@ -1,5 +1,5 @@
 {
-  "timestamp": 1782105956,
+  "timestamp": 1782121136,
   "database": "odoo19_captivea2",
   "odoo_url": "https://uriah-apolitical-masako.ngrok-free.dev",
   "module": "cap_account_intern_company_transection",
@@ -17,7 +17,7 @@
     {
       "label": "inter_comp_journal_entry_id",
       "passed": true,
-      "detail": "344500"
+      "detail": "344552"
     },
     {
       "label": "action_post posted",
