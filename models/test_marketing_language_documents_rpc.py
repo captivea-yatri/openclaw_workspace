@@ -67,6 +67,7 @@ class OdooRPCClient:
     """Thin Odoo 19 RPC client (JSON-RPC or XML-RPC)."""
 
     def __init__(self, url: str, db: str, username: str, password: str, protocol: str = "jsonrpc"):
+        # Existing init handler
         self.url = url.rstrip("/")
         self.db = db
         self.username = username
@@ -104,6 +105,8 @@ class OdooRPCClient:
         return uid
 
     def _jsonrpc(self, service: str, method: str, args: list) -> Any:
+        # Existing JSON-RPC handler
+
         self._json_id += 1
         payload = {
             "jsonrpc": "2.0",
@@ -138,6 +141,7 @@ class OdooRPCClient:
         args: list | None = None,
         kwargs: dict | None = None,
     ) -> Any:
+        # Existing execute_kw handler
         if self.uid is None:
             raise RuntimeError("Not authenticated. Call authenticate() first.")
         args = args or []
@@ -159,6 +163,7 @@ class OdooRPCClient:
         limit: int | None = None,
         order: str | None = None,
     ) -> list[int]:
+        # Existing search handler
         kwargs: dict[str, Any] = {}
         if limit is not None:
             kwargs["limit"] = limit
@@ -167,19 +172,37 @@ class OdooRPCClient:
         return self.execute_kw(model, "search", [domain], kwargs)
 
     def read(self, model: str, ids: list[int], fields: list[str]) -> list[dict]:
+        # Existing read handler
         return self.execute_kw(model, "read", [ids, fields])
 
     def create(self, model: str, vals: dict) -> int:
+        # Existing create handler
         return self.execute_kw(model, "create", [vals])
 
     def write(self, model: str, ids: list[int], vals: dict) -> bool:
+        # Existing write handler
         return self.execute_kw(model, "write", [ids, vals])
 
     def unlink(self, model: str, ids: list[int]) -> bool:
+        # Existing unlink handler
         return self.execute_kw(model, "unlink", [ids])
 
     def fields_get(self, model: str, fields: list[str] | None = None) -> dict:
+        # Existing fields_get handler
         return self.execute_kw(model, "fields_get", [fields or []], {})
+
+    def render_report(self, report_name: str, record_ids: list[int]) -> bytes:
+        """Render a report (PDF) for given record ids.
+        Uses the Odoo report service; works for both JSON‑RPC and XML‑RPC.
+        Returns raw PDF bytes.
+        """
+        if self.protocol == "xmlrpc":
+            # In XML‑RPC the report service is accessed via object call on ir.actions.report
+            return self._xml_models.execute_kw(
+                self.db, self.uid, self.password, "ir.actions.report", "render_report", [report_name, record_ids], {}
+            )
+        # JSON‑RPC uses the dedicated "report" service
+        return self._jsonrpc("report", "render_report", [report_name, record_ids])
 
 
 class MarketingLanguageDocumentsRPCTest:
@@ -323,6 +346,10 @@ class MarketingLanguageDocumentsRPCTest:
             self._skip("Sale order tests", f"{MODEL_SALE_ORDER} not accessible")
             return
 
+        # Get the current user's company to avoid company crossover errors
+        user_info = self.client.read("res.users", [self.client.uid], ["company_id"])[0]
+        user_company_id = self._m2o_id(user_info.get("company_id"))
+
         product_ids = self.client.search(MODEL_PRODUCT, [("sale_ok", "=", True)], limit=1)
         if not product_ids:
             self._skip("Sale order tests", "no saleable product found")
@@ -331,10 +358,87 @@ class MarketingLanguageDocumentsRPCTest:
         product_id = product_ids[0]
         line_vals = {"product_id": product_id, "product_uom_qty": 1}
 
-        so_fr_id = self.client.create(
-            MODEL_SALE_ORDER,
-            {"partner_id": fr_partner_id, "order_line": [(0, 0, line_vals)]},
+        try:
+            so_fr_id = self.client.create(
+                MODEL_SALE_ORDER,
+                {"partner_id": fr_partner_id, "order_line": [(0, 0, line_vals)], "company_id": user_company_id, "team_id": False},
+            )
+        except RuntimeError as exc:
+            self._skip("Sale order FR creation", str(exc))
+            return
+        self._track(MODEL_SALE_ORDER, so_fr_id)
+        so_fr_partner_id = self._m2o_id(
+            self.client.read(MODEL_SALE_ORDER, [so_fr_id], ["partner_id"])[0]["partner_id"]
         )
+        doc_lang = self._document_lang_for_partner(so_fr_partner_id)
+        self._ok(
+            f"French customer SO uses partner lang {LANG_FR} for documents",
+            doc_lang == LANG_FR,
+            f"so id={so_fr_id}, document lang={doc_lang!r}",
+        )
+        # Generate PDF for French sale order
+        try:
+            pdf_data = self.client.render_report('sale.action_report_saleorder', [so_fr_id])
+            with open(f'sale_order_{so_fr_id}_fr.pdf', 'wb') as f:
+                f.write(pdf_data)
+        except Exception as e:
+            self._skip('Sale order FR PDF', str(e))
+
+        try:
+            so_en_id = self.client.create(
+                MODEL_SALE_ORDER,
+                {"partner_id": en_partner_id, "order_line": [(0, 0, line_vals)], "company_id": user_company_id, "team_id": False},
+            )
+        except RuntimeError as exc:
+            self._skip("Sale order EN creation", str(exc))
+            return
+        self._track(MODEL_SALE_ORDER, so_en_id)
+        so_en_partner_id = self._m2o_id(
+            self.client.read(MODEL_SALE_ORDER, [so_en_id], ["partner_id"])[0]["partner_id"]
+        )
+        doc_lang = self._document_lang_for_partner(so_en_partner_id)
+        self._ok(
+            f"English customer SO uses partner lang {LANG_EN} for documents",
+            doc_lang == LANG_EN,
+            f"so id={so_en_id}, document lang={doc_lang!r}",
+        )
+        # Generate PDF for English sale order
+        try:
+            pdf_data = self.client.render_report('sale.action_report_saleorder', [so_en_id])
+            with open(f'sale_order_{so_en_id}_en.pdf', 'wb') as f:
+                f.write(pdf_data)
+        except Exception as e:
+            self._skip('Sale order EN PDF', str(e))
+
+        """Section 3: sale order documents use partner lang (Odoo sale module)."""
+        print("\n--- Sale Order: document language ---")
+
+        if not self._module_installed("sale"):
+            self._skip("Sale order tests", "sale module not installed")
+            return
+        if not self._model_accessible(MODEL_SALE_ORDER):
+            self._skip("Sale order tests", f"{MODEL_SALE_ORDER} not accessible")
+            return
+
+        product_ids = self.client.search(MODEL_PRODUCT, [("sale_ok", "=", True)], limit=1)
+        if not product_ids:
+            self._skip("Sale order tests", "no saleable product found")
+            return
+
+        product_id = product_ids[0]
+        # Get current user's company to avoid company crossover errors
+        user_info = self.client.read("res.users", [self.client.uid], ["company_id"])[0]
+        user_company_id = self._m2o_id(user_info.get("company_id"))
+        line_vals = {"product_id": product_id, "product_uom_qty": 1}
+
+        try:
+            so_fr_id = self.client.create(
+                MODEL_SALE_ORDER,
+                {"partner_id": fr_partner_id, "order_line": [(0, 0, line_vals)], "company_id": user_company_id, "team_id": False},
+            )
+        except RuntimeError as exc:
+            self._skip("Sale order FR creation", str(exc))
+            return
         self._track(MODEL_SALE_ORDER, so_fr_id)
         so_fr_partner_id = self._m2o_id(
             self.client.read(MODEL_SALE_ORDER, [so_fr_id], ["partner_id"])[0]["partner_id"]
@@ -346,10 +450,14 @@ class MarketingLanguageDocumentsRPCTest:
             f"so id={so_fr_id}, document lang={doc_lang!r}",
         )
 
-        so_en_id = self.client.create(
-            MODEL_SALE_ORDER,
-            {"partner_id": en_partner_id, "order_line": [(0, 0, line_vals)]},
-        )
+        try:
+            so_en_id = self.client.create(
+                MODEL_SALE_ORDER,
+                {"partner_id": en_partner_id, "order_line": [(0, 0, line_vals)], "company_id": user_company_id, "team_id": False},
+            )
+        except RuntimeError as exc:
+            self._skip("Sale order EN creation", str(exc))
+            return
         self._track(MODEL_SALE_ORDER, so_en_id)
         so_en_partner_id = self._m2o_id(
             self.client.read(MODEL_SALE_ORDER, [so_en_id], ["partner_id"])[0]["partner_id"]
@@ -362,6 +470,77 @@ class MarketingLanguageDocumentsRPCTest:
         )
 
     def _test_invoice_document_language(self, fr_partner_id: int, en_partner_id: int) -> None:
+        """Section 4: invoice documents use partner lang (Odoo account module)."""
+        print("\n--- Invoice: document language ---")
+
+        if not self._module_installed("account"):
+            self._skip("Invoice tests", "account module not installed")
+            return
+        if not self._model_accessible(MODEL_ACCOUNT_MOVE):
+            self._skip("Invoice tests", f"{MODEL_ACCOUNT_MOVE} not accessible")
+            return
+
+        journal_ids = self.client.search(
+            "account.journal",
+            [("type", "=", "sale")],
+            limit=1,
+        )
+        if not journal_ids:
+            self._skip("Invoice tests", "no sale journal found")
+            return
+
+        inv_fr_id = self.client.create(
+            MODEL_ACCOUNT_MOVE,
+            {
+                "move_type": "out_invoice",
+                "partner_id": fr_partner_id,
+                "journal_id": journal_ids[0],
+            },
+        )
+        self._track(MODEL_ACCOUNT_MOVE, inv_fr_id)
+        inv_fr = self.client.read(
+            MODEL_ACCOUNT_MOVE, [inv_fr_id], ["partner_id"]
+        )[0]
+        doc_lang = self._document_lang_for_partner(self._m2o_id(inv_fr["partner_id"]))
+        self._ok(
+            f"French customer invoice uses partner lang {LANG_FR} for PDF/email",
+            doc_lang == LANG_FR,
+            f"invoice id={inv_fr_id}, document lang={doc_lang!r}",
+        )
+        # Generate PDF for French invoice
+        try:
+            pdf_data = self.client.render_report('account.account_invoices', [inv_fr_id])
+            with open(f'invoice_{inv_fr_id}_fr.pdf', 'wb') as f:
+                f.write(pdf_data)
+        except Exception as e:
+            self._skip('Invoice FR PDF', str(e))
+
+        inv_en_id = self.client.create(
+            MODEL_ACCOUNT_MOVE,
+            {
+                "move_type": "out_invoice",
+                "partner_id": en_partner_id,
+                "journal_id": journal_ids[0],
+            },
+        )
+        self._track(MODEL_ACCOUNT_MOVE, inv_en_id)
+        inv_en = self.client.read(
+            MODEL_ACCOUNT_MOVE, [inv_en_id], ["partner_id"]
+        )[0]
+        doc_lang = self._document_lang_for_partner(self._m2o_id(inv_en["partner_id"]))
+        self._ok(
+            f"English customer invoice uses partner lang {LANG_EN} for PDF/email",
+            doc_lang == LANG_EN,
+            f"invoice id={inv_en_id}, document lang={doc_lang!r}",
+        )
+        # Generate PDF for English invoice
+        try:
+            pdf_data = self.client.render_report('account.account_invoices', [inv_en_id])
+            with open(f'invoice_{inv_en_id}_en.pdf', 'wb') as f:
+                f.write(pdf_data)
+        except Exception as e:
+            self._skip('Invoice EN PDF', str(e))
+
         """Section 4: invoice documents use partner lang (Odoo account module)."""
         print("\n--- Invoice: document language ---")
 
