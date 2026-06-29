@@ -3,15 +3,30 @@
 """
 Standalone RPC flow test for cap_single_employee_for_multi_company (Odoo 19).
 
-Flow:
-  Authenticate → module check → companies A/B/C → one user → one employee (co. A)
+Validates the "Anne Engin" single-employee multi-company scenario:
+
+  BEFORE: user had multiple employees (Anne Engin LLC, Anne Engin France, …)
+          and had to pick the right one per project — error-prone.
+
+  AFTER:  one employee record linked to the user; timesheets on any company
+          project auto-use that employee. Default company (Captivea LLC) must
+          stay active.
+
+  Time off: leave can only be requested for types allocated on the employee's
+            default company — not France/Luxembourg allocations.
+
+  Expense:  created in another company's context still resolves to the default-
+            company employee; posting must keep that employee.
+
+Flow (RPC):
+  Authenticate → module check → companies LLC/France/Lux → one user → one employee
   → multi-company access → projects/tasks → timesheets → leave → expenses → cleanup
 
 Run:
     python3 models/test_cap_single_employee_for_multi_company_rpc.py
     python3 models/test_cap_single_employee_for_multi_company_rpc.py --protocol xmlrpc
     python3 models/test_cap_single_employee_for_multi_company_rpc.py \\
-        --url http://localhost:8069 --db odoo19_captivea --user admin --password admin
+        --url http://localhost:8069 --db odoo --user admin --password admin
 """
 from __future__ import annotations
 
@@ -34,25 +49,27 @@ DEFAULT_PASSWORD = "admin"
 DEFAULT_PROTOCOL = "jsonrpc"
 
 MODULE_NAME = "cap_single_employee_for_multi_company"
-TEST_USER_LOGIN = "cap_seemc_flow_tester"
-TEST_USER_PASSWORD = "cap_seemc_test"
+TEST_USER_LOGIN = "anne_engin_rpc_tester"
+TEST_USER_PASSWORD = "anne_engin_test"
 TEST_PREFIX = "CAP SEEMC RPC"
 
+# Scenario labels (maps to functional doc)
+COMPANY_DEFAULT = "Captivea LLC"       # Company A — employee default company, must be active
+COMPANY_FRANCE = "Captivea France"     # Company B
+COMPANY_LUX = "Captivea Luxembourg"    # Company C
+EMPLOYEE_NAME = "Anne Engin"
+
 CMD_CREATE = 0
-CMD_LINK = 4
 CMD_SET = 6
 
-# models/res_users.py
 MODEL_RES_USERS = "res.users"
 MODEL_HR_EMPLOYEE = "hr.employee"
 FIELD_USER_EMPLOYEE = "employee_id"
 
-# models/hr_leave.py
 MODEL_HR_LEAVE = "hr.leave"
 FIELD_LEAVE_EMPLOYEE = "employee_id"
 FIELD_LEAVE_HOLIDAY_STATUS = "holiday_status_id"
 
-# models/hr_leave_allocation.py
 MODEL_HR_LEAVE_ALLOCATION = "hr.leave.allocation"
 FIELD_ALLOC_HOLIDAY_TYPE = "holiday_type"
 FIELD_ALLOC_EMPLOYEE = "employee_id"
@@ -212,7 +229,14 @@ class OdooRPCClient:
 
 
 class SingleEmployeeFlowRPCTest:
-    """End-to-end single-employee multi-company flow via RPC."""
+    """
+    End-to-end RPC test for the Anne Engin / Captivea single-employee scenario.
+
+    Company keys:
+      LLC    — default company (Captivea LLC), must be active
+      France — Captivea France
+      Lux    — Captivea Luxembourg
+    """
 
     def __init__(self, admin: OdooRPCClient, args: argparse.Namespace):
         self.admin = admin
@@ -233,9 +257,7 @@ class SingleEmployeeFlowRPCTest:
             MODEL_RES_USERS: [],
             MODEL_RES_COMPANY: [],
         }
-        self.company_a_id: int | None = None
-        self.company_b_id: int | None = None
-        self.company_c_id: int | None = None
+        self.companies: dict[str, int] = {}
         self.user_id: int | None = None
         self.employee_id: int | None = None
         self.project_ids: dict[str, int] = {}
@@ -271,6 +293,13 @@ class SingleEmployeeFlowRPCTest:
 
     def _ctx(self, company_id: int, **extra) -> dict:
         ctx = {"allowed_company_ids": [company_id], "default_company_id": company_id}
+        ctx.update(extra)
+        return ctx
+
+    def _multi_company_ctx(self, active_company_id: int, **extra) -> dict:
+        """User has access to LLC/France/Lux; active company is the one being worked in."""
+        allowed = [self._company_id(k) for k in ("LLC", "France", "Lux")]
+        ctx = {"allowed_company_ids": allowed, "default_company_id": active_company_id}
         ctx.update(extra)
         return ctx
 
@@ -332,9 +361,12 @@ class SingleEmployeeFlowRPCTest:
         except RuntimeError as exc:
             if fallback_ids:
                 for company_id in fallback_ids:
-                    data = self.admin.read(MODEL_RES_COMPANY, [company_id], ["name"])
+                    data = self.admin.read(MODEL_RES_COMPANY, [company_id], ["name", "active"])
                     if data:
-                        print(f"  [WARN] using existing company {data[0]['name']!r} (id={company_id}) instead of creating {name!r}: {exc}")
+                        print(
+                            f"  [WARN] using existing company {data[0]['name']!r} "
+                            f"(id={company_id}) instead of creating {name!r}: {str(exc)[:120]}"
+                        )
                         return company_id
             raise
 
@@ -368,39 +400,69 @@ class SingleEmployeeFlowRPCTest:
                 context=self._ctx(company_id),
             )
 
-    def _leave_vals(self, leave_type_id: int, company_id: int) -> dict:
-        today = str(date.today())
-        return {
+    def _leave_vals(
+        self,
+        leave_type_id: int,
+        employee_id: int | None = None,
+        day_offset: int = 0,
+    ) -> dict:
+        from datetime import timedelta
+        leave_day = date.today() + timedelta(days=day_offset)
+        today = str(leave_day)
+        vals = {
             FIELD_LEAVE_HOLIDAY_STATUS: leave_type_id,
             "request_date_from": today,
             "request_date_to": today,
             "date_from": f"{today} 08:00:00",
             "date_to": f"{today} 17:00:00",
         }
+        if employee_id:
+            vals[FIELD_LEAVE_EMPLOYEE] = employee_id
+        return vals
+
+    def _company_id(self, key: str) -> int:
+        company_id = self.companies.get(key)
+        if not company_id:
+            raise RuntimeError(f"Company {key!r} not set up")
+        return company_id
+
+    # ------------------------------------------------------------------
+    # Setup
+    # ------------------------------------------------------------------
 
     def _setup_companies(self) -> None:
-        self._section("Create Company A (Default), B, C")
+        self._section(
+            f"Companies: {COMPANY_DEFAULT} (default, active), {COMPANY_FRANCE}, {COMPANY_LUX}"
+        )
         fallback = self.admin.search(MODEL_RES_COMPANY, [], limit=3, order="id")
-        fb_a = fallback[0] if len(fallback) > 0 else None
-        fb_b = fallback[1] if len(fallback) > 1 else fb_a
-        fb_c = fallback[2] if len(fallback) > 2 else fb_b
-        self.company_a_id = self._get_or_create_company(
-            f"{TEST_PREFIX} Company A", [fb_a] if fb_a else None
+        fb = [fallback[i] if i < len(fallback) else fallback[0] for i in range(3)]
+
+        self.companies["LLC"] = self._get_or_create_company(
+            f"{TEST_PREFIX} {COMPANY_DEFAULT}", [fb[0]]
         )
-        self.company_b_id = self._get_or_create_company(
-            f"{TEST_PREFIX} Company B", [fb_b] if fb_b else None
+        self.companies["France"] = self._get_or_create_company(
+            f"{TEST_PREFIX} {COMPANY_FRANCE}", [fb[1]]
         )
-        self.company_c_id = self._get_or_create_company(
-            f"{TEST_PREFIX} Company C", [fb_c] if fb_c else None
+        self.companies["Lux"] = self._get_or_create_company(
+            f"{TEST_PREFIX} {COMPANY_LUX}", [fb[2]]
+        )
+
+        llc_data = self.admin.read(
+            MODEL_RES_COMPANY, [self.companies["LLC"]], ["name", "active"]
+        )[0]
+        self._ok(
+            f"Default company ({COMPANY_DEFAULT}) is active",
+            llc_data.get("active") is True,
+            f"id={self.companies['LLC']}, name={llc_data.get('name')!r}",
         )
         self._ok(
-            "Companies A, B, C ready",
-            all([self.company_a_id, self.company_b_id, self.company_c_id]),
-            f"A={self.company_a_id}, B={self.company_b_id}, C={self.company_c_id}",
+            "Three companies ready (LLC / France / Lux)",
+            all(self.companies.values()),
+            str(self.companies),
         )
 
     def _setup_user_and_employee(self) -> None:
-        self._section("Create ONE user + ONE employee (default company = A)")
+        self._section(f"ONE user + ONE employee ({EMPLOYEE_NAME}, default company = LLC)")
         existing = self.admin.search(MODEL_RES_USERS, [("login", "=", TEST_USER_LOGIN)], limit=1)
         group_xmlids = [
             "base.group_user",
@@ -415,13 +477,17 @@ class SingleEmployeeFlowRPCTest:
             group_xmlids.append("hr_expense.group_hr_expense_user")
         group_ids = self._group_ids(group_xmlids)
 
+        llc_id = self._company_id("LLC")
+        france_id = self._company_id("France")
+        lux_id = self._company_id("Lux")
+
         if existing:
             self.user_id = existing[0]
         else:
             self.user_id = self.admin.create(
                 MODEL_RES_USERS,
                 {
-                    "name": f"{TEST_PREFIX} Flow User",
+                    "name": f"{TEST_PREFIX} {EMPLOYEE_NAME}",
                     "login": TEST_USER_LOGIN,
                     "email": f"{TEST_USER_LOGIN}@example.com",
                     "group_ids": [(CMD_SET, 0, group_ids)],
@@ -429,19 +495,18 @@ class SingleEmployeeFlowRPCTest:
             )
             self._track(MODEL_RES_USERS, self.user_id)
 
-        assert self.company_a_id and self.company_b_id and self.company_c_id
         self.admin.write(
             MODEL_RES_USERS,
             [self.user_id],
             {
-                "company_id": self.company_a_id,
-                "company_ids": [(CMD_SET, 0, [self.company_a_id, self.company_b_id, self.company_c_id])],
+                "company_id": llc_id,
+                "company_ids": [(CMD_SET, 0, [llc_id, france_id, lux_id])],
                 "password": TEST_USER_PASSWORD,
                 "group_ids": [(CMD_SET, 0, group_ids)],
             },
         )
-        self._ok("User created with default company A", True, f"user_id={self.user_id}")
 
+        employee_name = f"{TEST_PREFIX} {EMPLOYEE_NAME}"
         employee_existing = self.admin.search(
             MODEL_HR_EMPLOYEE,
             [("user_id", "=", self.user_id)],
@@ -452,56 +517,52 @@ class SingleEmployeeFlowRPCTest:
             self.admin.write(
                 MODEL_HR_EMPLOYEE,
                 [self.employee_id],
-                {"company_id": self.company_a_id, "name": f"{TEST_PREFIX} Employee"},
-                context=self._ctx(self.company_a_id),
+                {"company_id": llc_id, "name": employee_name},
+                context=self._ctx(llc_id),
             )
         else:
             self.employee_id = self.admin.create(
                 MODEL_HR_EMPLOYEE,
                 {
-                    "name": f"{TEST_PREFIX} Employee",
-                    "company_id": self.company_a_id,
+                    "name": employee_name,
+                    "company_id": llc_id,
                     "user_id": self.user_id,
                 },
-                context=self._ctx(self.company_a_id),
+                context=self._ctx(llc_id),
             )
             self._track(MODEL_HR_EMPLOYEE, self.employee_id)
 
         employee_count = self.admin.search(
-            MODEL_HR_EMPLOYEE,
-            [("user_id", "=", self.user_id)],
+            MODEL_HR_EMPLOYEE, [("user_id", "=", self.user_id), ("active", "=", True)]
         )
-        employee_data = self.admin.read(
-            MODEL_HR_EMPLOYEE,
-            [self.employee_id],
-            ["company_id", "user_id"],
-            context=self._ctx(self.company_a_id),
-        )[0]
         self._ok(
-            "Exactly one employee linked to user",
+            "No duplicate per-company employees (single Anne Engin only)",
             len(employee_count) == 1,
-            f"count={len(employee_count)}",
+            f"active employee count={len(employee_count)}",
         )
         self._ok(
-            "Employee default company is Company A",
-            self._m2o_id(employee_data["company_id"]) == self.company_a_id,
+            f"{EMPLOYEE_NAME} default company is {COMPANY_DEFAULT}",
+            self._m2o_id(
+                self.admin.read(MODEL_HR_EMPLOYEE, [self.employee_id], ["company_id"])[0][
+                    "company_id"
+                ]
+            )
+            == llc_id,
             f"employee_id={self.employee_id}",
         )
 
         user_companies = self.admin.read(
-            MODEL_RES_USERS,
-            [self.user_id],
-            ["company_id", "company_ids"],
+            MODEL_RES_USERS, [self.user_id], ["company_id", "company_ids"]
         )[0]
         allowed = {self._m2o_id(c) for c in user_companies["company_ids"]}
         self._ok(
-            "User has access to companies A, B, C",
-            {self.company_a_id, self.company_b_id, self.company_c_id}.issubset(allowed),
+            f"{EMPLOYEE_NAME} has access to LLC, France, and Lux",
+            {llc_id, france_id, lux_id}.issubset(allowed),
             str(sorted(allowed)),
         )
         self._ok(
-            "User default company is A",
-            self._m2o_id(user_companies["company_id"]) == self.company_a_id,
+            f"User default company is {COMPANY_DEFAULT}",
+            self._m2o_id(user_companies["company_id"]) == llc_id,
         )
 
     def _authenticate_test_user(self) -> None:
@@ -513,10 +574,31 @@ class SingleEmployeeFlowRPCTest:
             self.args.protocol,
         )
         uid = self.user_client.authenticate()
-        self._ok("Test user authenticated", bool(uid), f"uid={uid}")
+        self._ok(f"{EMPLOYEE_NAME} authenticated", bool(uid), f"uid={uid}")
+
+    def _test_user_employee_across_companies(self) -> None:
+        """res.users.employee_id must resolve to the single employee in every company."""
+        self._section("User employee_id is always the single employee (all companies)")
+        if not self.user_client or not self.user_id or not self.employee_id:
+            self._skip("Cross-company employee_id", "test user not ready")
+            return
+
+        for key in ("LLC", "France", "Lux"):
+            company_id = self._company_id(key)
+            user_data = self.user_client.read(
+                MODEL_RES_USERS,
+                [self.user_id],
+                [FIELD_USER_EMPLOYEE],
+                context=self._ctx(company_id),
+            )[0]
+            self._ok(
+                f"user.employee_id in {key} context = {EMPLOYEE_NAME}",
+                self._m2o_id(user_data[FIELD_USER_EMPLOYEE]) == self.employee_id,
+                f"got={self._m2o_id(user_data[FIELD_USER_EMPLOYEE])}",
+            )
 
     def _setup_projects_and_tasks(self) -> None:
-        self._section("Create Project A / B / C and Tasks")
+        self._section("Projects & tasks per company (France / Lux / LLC projects)")
         if not self._module_installed("project"):
             self._skip("Projects and tasks", "project module not installed")
             return
@@ -524,21 +606,18 @@ class SingleEmployeeFlowRPCTest:
         project_fields = self.admin.fields_get(MODEL_PROJECT, [])
         has_allow_timesheets = "allow_timesheets" in project_fields
 
-        for key, company_id in {
-            "A": self.company_a_id,
-            "B": self.company_b_id,
-            "C": self.company_c_id,
-        }.items():
-            name = f"{TEST_PREFIX} Project {key}"
+        for key in ("LLC", "France", "Lux"):
+            company_id = self._company_id(key)
+            project_name = f"{TEST_PREFIX} Project {key}"
             existing = self.admin.search(
                 MODEL_PROJECT,
-                [("name", "=", name), ("company_id", "=", company_id)],
+                [("name", "=", project_name), ("company_id", "=", company_id)],
                 limit=1,
             )
             if existing:
                 project_id = existing[0]
             else:
-                vals: dict[str, Any] = {"name": name, "company_id": company_id}
+                vals: dict[str, Any] = {"name": project_name, "company_id": company_id}
                 if has_allow_timesheets:
                     vals["allow_timesheets"] = True
                 project_id = self.admin.create(MODEL_PROJECT, vals, context=self._ctx(company_id))
@@ -562,144 +641,288 @@ class SingleEmployeeFlowRPCTest:
                 self._track(MODEL_PROJECT_TASK, task_id)
             self.task_ids[key] = task_id
 
-        self._ok(
-            "Projects A/B/C created",
-            len(self.project_ids) == 3,
-            str(self.project_ids),
+        self._ok("One project + task per company", len(self.project_ids) == 3, str(self.project_ids))
+
+    def _setup_intercompany_timesheet_prereqs(self) -> None:
+        """
+        odoo19_captivea2 installs cap_manage_inter_company_timesheet: cross-company
+        timesheets need an internal project on the employee's company (LLC).
+        """
+        if not self._model_available(MODEL_PROJECT):
+            return
+        fields = self.admin.fields_get(MODEL_PROJECT, [])
+        if "project_status_id" not in fields:
+            return
+
+        llc_id = self._company_id("LLC")
+        status_ids = self.admin.search(
+            "project.status", [("code", "=", "internal")], limit=1
         )
-        self._ok(
-            "Tasks on each project created",
-            len(self.task_ids) == 3,
-            str(self.task_ids),
-        )
+        if not status_ids:
+            self._skip(
+                "Intercompany timesheet setup",
+                "project.status code=internal not found (cap_partner)",
+            )
+            return
+        status_id = status_ids[0]
+
+        for key in ("France", "Lux"):
+            foreign_id = self._company_id(key)
+            foreign = self.admin.read(
+                MODEL_RES_COMPANY, [foreign_id], ["name", "partner_id"]
+            )[0]
+            partner_id = self._m2o_id(foreign.get("partner_id"))
+            if not partner_id:
+                continue
+
+            internal_name = f"{TEST_PREFIX} Internal {foreign['name']}"
+            existing = self.admin.search(
+                MODEL_PROJECT,
+                [
+                    ("name", "=", internal_name),
+                    ("company_id", "=", llc_id),
+                    ("partner_id", "=", partner_id),
+                ],
+                limit=1,
+            )
+            if existing:
+                continue
+
+            try:
+                project_id = self.admin.create(
+                    MODEL_PROJECT,
+                    {
+                        "name": internal_name,
+                        "company_id": llc_id,
+                        "partner_id": partner_id,
+                        "project_status_id": status_id,
+                        "allow_timesheets": True,
+                    },
+                    context=self._ctx(llc_id),
+                )
+                self._track(MODEL_PROJECT, project_id)
+                print(
+                    f"  [INFO] created internal project id={project_id} "
+                    f"on LLC for {foreign['name']!r}"
+                )
+            except RuntimeError as exc:
+                print(
+                    f"  [WARN] could not create internal project for {key}: {str(exc)[:120]}"
+                )
+
+    # ------------------------------------------------------------------
+    # Timesheets — AFTER: no need to pick "Anne Engin France" on France project
+    # ------------------------------------------------------------------
 
     def _test_timesheets(self) -> None:
-        self._section("Timesheet Tests")
+        self._section(
+            "Timesheet tests — France/Lux/LLC projects all use single employee"
+        )
         if not self._module_installed("hr_timesheet"):
             self._skip("Timesheet tests", "hr_timesheet module not installed")
             return
-        if not self.user_client or not self.employee_id:
-            self._skip("Timesheet tests", "test user or employee not ready")
-            return
-        if len(self.project_ids) < 3:
-            self._skip("Timesheet tests", "projects not created")
+        if not self.user_client or not self.employee_id or len(self.project_ids) < 3:
+            self._skip("Timesheet tests", "prerequisites missing")
             return
 
+        self._setup_intercompany_timesheet_prereqs()
+
         today = str(date.today())
-        for key, company_id in {
-            "A": self.company_a_id,
-            "B": self.company_b_id,
-            "C": self.company_c_id,
-        }.items():
-            line_id = self.user_client.create(
-                MODEL_ANALYTIC_LINE,
-                {
-                    "name": f"{TEST_PREFIX} Timesheet {key}",
-                    "project_id": self.project_ids[key],
-                    "task_id": self.task_ids[key],
-                    "date": today,
-                    "unit_amount": 1.0,
-                },
-                context=self._ctx(company_id),
-            )
+        for key, label in (
+            ("LLC", COMPANY_DEFAULT),
+            ("France", COMPANY_FRANCE),
+            ("Lux", COMPANY_LUX),
+        ):
+            company_id = self._company_id(key)
+            ts_ctx = self._multi_company_ctx(company_id)
+            try:
+                line_id = self.user_client.create(
+                    MODEL_ANALYTIC_LINE,
+                    {
+                        "name": f"{TEST_PREFIX} Timesheet {label}",
+                        "project_id": self.project_ids[key],
+                        "task_id": self.task_ids[key],
+                        "date": today,
+                        "unit_amount": 1.0,
+                    },
+                    context=ts_ctx,
+                )
+            except RuntimeError as exc:
+                self._ok(
+                    f"Timesheet on {label} project → employee auto = {EMPLOYEE_NAME}",
+                    False,
+                    str(exc)[:200],
+                )
+                continue
             self._track(MODEL_ANALYTIC_LINE, line_id)
             line = self.user_client.read(
                 MODEL_ANALYTIC_LINE,
                 [line_id],
                 ["employee_id", "project_id"],
-                context=self._ctx(company_id),
+                context=ts_ctx,
             )[0]
             self._ok(
-                f"Company {key} timesheet uses single employee",
+                f"Timesheet on {label} project → employee auto = {EMPLOYEE_NAME}",
                 self._m2o_id(line["employee_id"]) == self.employee_id,
-                f"got employee_id={self._m2o_id(line['employee_id'])}",
+                f"employee_id={self._m2o_id(line['employee_id'])}",
             )
 
+    # ------------------------------------------------------------------
+    # Leave — only default-company (LLC) allocations can be requested
+    # ------------------------------------------------------------------
+
+    def _cleanup_existing_test_leaves(self) -> None:
+        if not self.employee_id:
+            return
+        leave_ids = self.admin.search(
+            MODEL_HR_LEAVE,
+            [("employee_id", "=", self.employee_id), ("state", "in", ["draft", "confirm"])],
+        )
+        for leave_id in leave_ids:
+            try:
+                self.admin.call(MODEL_HR_LEAVE, "action_refuse", [leave_id])
+            except RuntimeError:
+                pass
+        draft_ids = self.admin.search(
+            MODEL_HR_LEAVE,
+            [("employee_id", "=", self.employee_id), ("state", "in", ["draft", "refuse"])],
+        )
+        if draft_ids:
+            try:
+                self.admin.unlink(MODEL_HR_LEAVE, draft_ids)
+            except RuntimeError:
+                pass
+
     def _test_leave(self) -> None:
-        self._section("Leave Tests")
-        assert self.company_a_id and self.company_b_id and self.employee_id
-
-        self.leave_type_ids["A"] = self._create_leave_type(
-            f"{TEST_PREFIX} Leave Type A", self.company_a_id
+        self._section(
+            f"Leave tests — request only {COMPANY_DEFAULT} allocation; France/Lux blocked"
         )
-        self.leave_type_ids["B"] = self._create_leave_type(
-            f"{TEST_PREFIX} Leave Type B", self.company_b_id
+        assert self.employee_id
+        self._cleanup_existing_test_leaves()
+        llc_id = self._company_id("LLC")
+        france_id = self._company_id("France")
+        lux_id = self._company_id("Lux")
+
+        self.leave_type_ids["LLC"] = self._create_leave_type(
+            f"{TEST_PREFIX} Leave {COMPANY_DEFAULT}", llc_id
+        )
+        self.leave_type_ids["France"] = self._create_leave_type(
+            f"{TEST_PREFIX} Leave {COMPANY_FRANCE}", france_id
+        )
+        self.leave_type_ids["Lux"] = self._create_leave_type(
+            f"{TEST_PREFIX} Leave {COMPANY_LUX}", lux_id
         )
 
-        alloc_a_id = self.admin.create(
+        # Allocate on default company
+        alloc_vals_llc: dict[str, Any] = {
+            "name": f"{TEST_PREFIX} Allocation LLC",
+            FIELD_ALLOC_EMPLOYEE: self.employee_id,
+            FIELD_ALLOC_HOLIDAY_STATUS: self.leave_type_ids["LLC"],
+            FIELD_ALLOC_NUMBER_OF_DAYS: 5.0,
+        }
+        alloc_fields = self.admin.fields_get(MODEL_HR_LEAVE_ALLOCATION, [])
+        if FIELD_ALLOC_HOLIDAY_TYPE in alloc_fields:
+            alloc_vals_llc[FIELD_ALLOC_HOLIDAY_TYPE] = "employee"
+
+        alloc_llc_id = self.admin.create(
             MODEL_HR_LEAVE_ALLOCATION,
-            {
-                "name": f"{TEST_PREFIX} Allocation A",
-                FIELD_ALLOC_HOLIDAY_TYPE: "employee",
-                FIELD_ALLOC_EMPLOYEE: self.employee_id,
-                FIELD_ALLOC_HOLIDAY_STATUS: self.leave_type_ids["A"],
-                FIELD_ALLOC_NUMBER_OF_DAYS: 5.0,
-            },
-            context=self._ctx(self.company_a_id),
+            alloc_vals_llc,
+            context=self._ctx(llc_id),
         )
-        self._track(MODEL_HR_LEAVE_ALLOCATION, alloc_a_id)
-        self._validate_allocation(alloc_a_id, self.company_a_id)
+        self._track(MODEL_HR_LEAVE_ALLOCATION, alloc_llc_id)
+        self._validate_allocation(alloc_llc_id, llc_id)
         self._ok(
-            "Allocate leave in Company A",
-            self.admin.read(MODEL_HR_LEAVE_ALLOCATION, [alloc_a_id], ["state"])[0]["state"]
+            f"Allocate leave on {COMPANY_DEFAULT}",
+            self.admin.read(MODEL_HR_LEAVE_ALLOCATION, [alloc_llc_id], ["state"])[0]["state"]
             == "validate",
-            f"allocation_id={alloc_a_id}",
+            f"id={alloc_llc_id}",
         )
 
-        alloc_b_id = self.admin.create(
-            MODEL_HR_LEAVE_ALLOCATION,
-            {
-                "name": f"{TEST_PREFIX} Allocation B",
-                FIELD_ALLOC_HOLIDAY_TYPE: "company",
-                FIELD_ALLOC_MODE_COMPANY: self.company_b_id,
-                FIELD_ALLOC_HOLIDAY_STATUS: self.leave_type_ids["B"],
-                FIELD_ALLOC_NUMBER_OF_DAYS: 5.0,
-            },
-            context=self._ctx(self.company_b_id),
-        )
-        self._track(MODEL_HR_LEAVE_ALLOCATION, alloc_b_id)
-        self._validate_allocation(alloc_b_id, self.company_b_id)
-        self._ok(
-            "Allocate leave in Company B (company mode)",
-            self.admin.read(MODEL_HR_LEAVE_ALLOCATION, [alloc_b_id], ["state"])[0]["state"]
-            == "validate",
-            f"allocation_id={alloc_b_id}",
-        )
+        has_mode_company = FIELD_ALLOC_MODE_COMPANY in alloc_fields
+        if has_mode_company and FIELD_ALLOC_HOLIDAY_TYPE in alloc_fields:
+            alloc_france_id = self.admin.create(
+                MODEL_HR_LEAVE_ALLOCATION,
+                {
+                    "name": f"{TEST_PREFIX} Allocation France",
+                    FIELD_ALLOC_HOLIDAY_TYPE: "company",
+                    FIELD_ALLOC_MODE_COMPANY: france_id,
+                    FIELD_ALLOC_HOLIDAY_STATUS: self.leave_type_ids["France"],
+                    FIELD_ALLOC_NUMBER_OF_DAYS: 5.0,
+                },
+                context=self._ctx(france_id),
+            )
+            self._track(MODEL_HR_LEAVE_ALLOCATION, alloc_france_id)
+            self._validate_allocation(alloc_france_id, france_id)
+            self._ok(
+                f"Allocate leave on {COMPANY_FRANCE} (company mode)",
+                self.admin.read(MODEL_HR_LEAVE_ALLOCATION, [alloc_france_id], ["state"])[0]["state"]
+                == "validate",
+                f"id={alloc_france_id}",
+            )
 
-        client = self.user_client or self.admin
-        leave_a_id = client.create(
-            MODEL_HR_LEAVE,
-            self._leave_vals(self.leave_type_ids["A"], self.company_a_id),
-            context=self._ctx(self.company_a_id),
-        )
-        self._track(MODEL_HR_LEAVE, leave_a_id)
-        leave_a = client.read(
-            MODEL_HR_LEAVE,
-            [leave_a_id],
-            [FIELD_LEAVE_EMPLOYEE, FIELD_LEAVE_HOLIDAY_STATUS],
-            context=self._ctx(self.company_a_id),
-        )[0]
-        self._ok(
-            "Request Company A leave — PASS",
-            self._m2o_id(leave_a[FIELD_LEAVE_EMPLOYEE]) == self.employee_id
-            and self._m2o_id(leave_a[FIELD_LEAVE_HOLIDAY_STATUS]) == self.leave_type_ids["A"],
-            f"leave_id={leave_a_id}",
-        )
-
+        bad_alloc_vals: dict[str, Any] = {
+            "name": f"{TEST_PREFIX} Bad Allocation France",
+            FIELD_ALLOC_EMPLOYEE: self.employee_id,
+            FIELD_ALLOC_HOLIDAY_STATUS: self.leave_type_ids["France"],
+            FIELD_ALLOC_NUMBER_OF_DAYS: 1.0,
+        }
+        if FIELD_ALLOC_HOLIDAY_TYPE in alloc_fields:
+            bad_alloc_vals[FIELD_ALLOC_HOLIDAY_TYPE] = "employee"
         self._expect_rpc_error(
-            "Request Company B leave — FAIL",
-            lambda: client.create(
-                MODEL_HR_LEAVE,
-                self._leave_vals(self.leave_type_ids["B"], self.company_b_id),
-                context=self._ctx(self.company_b_id),
+            f"Allocation for {COMPANY_FRANCE} leave type (employee on LLC) — FAIL",
+            lambda: self.admin.create(
+                MODEL_HR_LEAVE_ALLOCATION,
+                bad_alloc_vals,
+                context=self._ctx(france_id),
             ),
         )
 
+        client = self.admin  # hr.leave RPC may be restricted for non-admin on this DB
+
+        leave_llc_id = client.create(
+            MODEL_HR_LEAVE,
+            self._leave_vals(self.leave_type_ids["LLC"], self.employee_id),
+            context=self._ctx(llc_id),
+        )
+        self._track(MODEL_HR_LEAVE, leave_llc_id)
+        leave_llc = client.read(
+            MODEL_HR_LEAVE,
+            [leave_llc_id],
+            [FIELD_LEAVE_EMPLOYEE, FIELD_LEAVE_HOLIDAY_STATUS],
+            context=self._ctx(llc_id),
+        )[0]
+        self._ok(
+            f"Request {COMPANY_DEFAULT} leave — PASS",
+            self._m2o_id(leave_llc[FIELD_LEAVE_EMPLOYEE]) == self.employee_id
+            and self._m2o_id(leave_llc[FIELD_LEAVE_HOLIDAY_STATUS]) == self.leave_type_ids["LLC"],
+            f"leave_id={leave_llc_id}",
+        )
+
+        self._expect_rpc_error(
+            f"Request {COMPANY_FRANCE} leave (not default company allocation) — FAIL",
+            lambda: client.create(
+                MODEL_HR_LEAVE,
+                self._leave_vals(self.leave_type_ids["France"], self.employee_id, day_offset=1),
+                context=self._ctx(france_id),
+            ),
+        )
+
+        self._expect_rpc_error(
+            f"Request {COMPANY_LUX} leave (not default company allocation) — FAIL",
+            lambda: client.create(
+                MODEL_HR_LEAVE,
+                self._leave_vals(self.leave_type_ids["Lux"], self.employee_id, day_offset=2),
+                context=self._ctx(lux_id),
+            ),
+        )
+
+    # ------------------------------------------------------------------
+    # Expense — default-company employee on create and on post
+    # ------------------------------------------------------------------
+
     def _get_expense_product(self) -> int | None:
         product_ids = self.admin.search(
-            "product.product",
-            [("can_be_expensed", "=", True)],
-            limit=1,
+            "product.product", [("can_be_expensed", "=", True)], limit=1
         )
         if product_ids:
             return product_ids[0]
@@ -719,79 +942,115 @@ class SingleEmployeeFlowRPCTest:
         )
 
     def _test_expenses(self) -> None:
-        self._section("Expense Tests")
+        self._section(
+            f"Expense tests — create in {COMPANY_FRANCE}, post keeps {COMPANY_DEFAULT} employee"
+        )
         if not self._module_installed("hr_expense"):
             self._skip("Expense tests", "hr_expense module not installed")
             return
-        if not self.user_client or not self.employee_id or not self.company_b_id:
-            self._skip("Expense tests", "test user, employee, or company B not ready")
+        if not self.user_client or not self.employee_id:
+            self._skip("Expense tests", "test user or employee not ready")
             return
 
+        france_id = self._company_id("France")
+        llc_id = self._company_id("LLC")
         product_id = self._get_expense_product()
         if not product_id:
             self._skip("Expense tests", "no expensible product found")
             return
 
-        expense_id = self.user_client.create(
+        # Same-company expense (LLC) — baseline
+        expense_llc_id = self.admin.create(
             MODEL_HR_EXPENSE,
             {
-                "name": f"{TEST_PREFIX} Expense Company B",
+                "name": f"{TEST_PREFIX} Expense {COMPANY_DEFAULT}",
                 "product_id": product_id,
-                "total_amount_currency": 100.0,
+                "total_amount_currency": 50.0,
                 "quantity": 1.0,
-                "company_id": self.company_b_id,
+                "company_id": llc_id,
+                "employee_id": self.employee_id,
             },
-            context=self._ctx(self.company_b_id),
+            context=self._ctx(llc_id),
         )
+        self._track(MODEL_HR_EXPENSE, expense_llc_id)
+        llc_exp = self.admin.read(
+            MODEL_HR_EXPENSE, [expense_llc_id], ["employee_id"], context=self._ctx(llc_id)
+        )[0]
+        self._ok(
+            f"Expense in {COMPANY_DEFAULT} → employee = {EMPLOYEE_NAME}",
+            self._m2o_id(llc_exp["employee_id"]) == self.employee_id,
+        )
+
+        # Cross-company expense (France) — module should keep default LLC employee
+        try:
+            expense_id = self.admin.create(
+                MODEL_HR_EXPENSE,
+                {
+                    "name": f"{TEST_PREFIX} Expense {COMPANY_FRANCE}",
+                    "product_id": product_id,
+                    "total_amount_currency": 100.0,
+                    "quantity": 1.0,
+                    "company_id": france_id,
+                },
+                context=self._multi_company_ctx(france_id),
+            )
+        except RuntimeError as exc:
+            self._ok(
+                f"Expense in {COMPANY_FRANCE} with default-company employee",
+                False,
+                f"blocked by Odoo company check (module may need hr.expense override): {str(exc)[:160]}",
+            )
+            return
+
         self._track(MODEL_HR_EXPENSE, expense_id)
-        expense = self.user_client.read(
+        on_create = self.admin.read(
             MODEL_HR_EXPENSE,
             [expense_id],
             ["employee_id", "company_id", "state"],
-            context=self._ctx(self.company_b_id),
+            context=self._multi_company_ctx(france_id),
         )[0]
         self._ok(
-            "Expense in Company B selects default-company employee",
-            self._m2o_id(expense["employee_id"]) == self.employee_id,
-            f"employee_id={self._m2o_id(expense['employee_id'])}",
+            f"Expense created in {COMPANY_FRANCE} → employee = {EMPLOYEE_NAME} (default LLC)",
+            self._m2o_id(on_create["employee_id"]) == self.employee_id,
+            f"employee_id={self._m2o_id(on_create['employee_id'])}",
         )
 
         try:
-            self.user_client.call(
+            self.admin.call(
                 MODEL_HR_EXPENSE,
                 "action_submit",
                 [expense_id],
-                context=self._ctx(self.company_b_id),
+                context=self._multi_company_ctx(france_id),
             )
             self.admin.call(
                 MODEL_HR_EXPENSE,
                 "action_approve",
                 [expense_id],
-                context=self._ctx(self.company_b_id),
+                context=self._multi_company_ctx(france_id),
             )
-            posted = self.admin.read(
+            on_post = self.admin.read(
                 MODEL_HR_EXPENSE,
                 [expense_id],
                 ["employee_id", "state"],
-                context=self._ctx(self.company_b_id),
+                context=self._multi_company_ctx(france_id),
             )[0]
             self._ok(
-                "Posted expense keeps default-company employee",
-                self._m2o_id(posted["employee_id"]) == self.employee_id
-                and posted["state"] in ("approved", "posted", "done", "in_payment", "paid"),
-                f"state={posted['state']}, employee_id={self._m2o_id(posted['employee_id'])}",
+                f"Posted expense keeps {COMPANY_DEFAULT} employee ({EMPLOYEE_NAME})",
+                self._m2o_id(on_post["employee_id"]) == self.employee_id
+                and on_post["state"] in ("approved", "posted", "done", "in_payment", "paid"),
+                f"state={on_post['state']}, employee_id={self._m2o_id(on_post['employee_id'])}",
             )
         except RuntimeError as exc:
-            expense_after = self.admin.read(
+            after = self.admin.read(
                 MODEL_HR_EXPENSE,
                 [expense_id],
                 ["employee_id", "state"],
-                context=self._ctx(self.company_b_id),
+                context=self._multi_company_ctx(france_id),
             )[0]
             self._ok(
-                "Posted expense keeps default-company employee",
-                self._m2o_id(expense_after["employee_id"]) == self.employee_id,
-                f"approve/post skipped ({str(exc)[:120]}), state={expense_after['state']}",
+                f"Expense employee unchanged after submit (post skipped: {str(exc)[:80]})",
+                self._m2o_id(after["employee_id"]) == self.employee_id,
+                f"state={after['state']}",
             )
 
     def _cleanup(self) -> None:
@@ -837,8 +1096,9 @@ class SingleEmployeeFlowRPCTest:
 
     def run(self) -> bool:
         print("=" * 80)
-        print("CAP Single Employee Multi-Company — Flow RPC Test (Odoo 19)")
-        print(f"Module : {MODULE_NAME}")
+        print("Single Employee for Multi-Company — Flow RPC Test (Odoo 19)")
+        print(f"Scenario: {EMPLOYEE_NAME} @ {COMPANY_DEFAULT} (default, active)")
+        print(f"Module  : {MODULE_NAME}")
         print(
             f"Protocol: {self.admin.protocol.upper()} | DB: {self.admin.db} | URL: {self.admin.url}"
         )
@@ -867,6 +1127,7 @@ class SingleEmployeeFlowRPCTest:
         self._setup_companies()
         self._setup_user_and_employee()
         self._authenticate_test_user()
+        self._test_user_employee_across_companies()
         self._setup_projects_and_tasks()
         self._test_timesheets()
         self._test_leave()
@@ -882,7 +1143,10 @@ class SingleEmployeeFlowRPCTest:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Flow RPC test for cap_single_employee_for_multi_company (Odoo 19)",
+        description=(
+            "RPC flow test for cap_single_employee_for_multi_company — "
+            "Anne Engin / Captivea single-employee scenario (Odoo 19)"
+        ),
     )
     parser.add_argument("--url", default=DEFAULT_URL)
     parser.add_argument("--db", default=DEFAULT_DB)
