@@ -25,6 +25,11 @@ python3 scripts/trace_mail_activity_errors.py \\
   --url https://your-odoo.com --db PROD_DB --user admin --password '***' \\
   --activity-id 1743636 --user-id 42
 
+# Full trace: reproduce RPC error + map to source code files + reverse lookup
+python3 scripts/trace_mail_activity_errors.py \\
+  --url http://localhost:8069 --db odoo --user admin --password admin \\
+  --activity-id 1743636 --user-id 42 --output /tmp/trace_report.json
+
 # Save JSON report
 python3 scripts/trace_mail_activity_errors.py ... --output /tmp/qil_trace_report.json
 
@@ -61,6 +66,76 @@ from test_quality_issue_approval_rpc import RpcError, connect  # noqa: E402
 LEGACY_ACTIVITY_SUMMARY = "Review Quality Issue"
 QIL_MODEL = "quality.issue.log"
 APPROVAL_MODEL = "approval.request"
+
+# Maps workflow paths to the custom/Odoo code that creates, deletes, or skips activities.
+CODE_PATHS = {
+    "approval_request": {
+        "label": "Approval Request activity (Approvals app)",
+        "create": [
+            {
+                "module": "access_rights_management",
+                "file": "models/approval_request.py",
+                "method": "action_confirm()",
+                "detail": "Line ~59: approvers._create_activity() after manager checks",
+            },
+            {
+                "module": "approvals (Odoo Enterprise)",
+                "file": "models/approval_approver.py",
+                "method": "_create_activity()",
+                "detail": "Core: creates mail.activity on approval.request for each pending approver",
+            },
+        ],
+        "delete": [
+            {
+                "module": "approvals (Odoo Enterprise)",
+                "method": "action_approve() / action_refuse()",
+                "detail": "Core calls _cancel_activities() / action_feedback — NOT overridden in your modules",
+            },
+        ],
+        "gaps": [
+            {
+                "module": "cap_quality_issue_log",
+                "file": "models/quality_issue_log.py",
+                "method": "accept_review() / refuse_review()",
+                "detail": "Do not unlink mail.activity or sync with approval.request",
+            },
+            {
+                "module": "access_rights_management",
+                "file": "models/approval_request.py",
+                "detail": "No override on action_approve/action_refuse to update quality.issue.log state",
+            },
+        ],
+        "ui_error_trigger": "Bell / Activities / activity popup → RPC mail.activity.read(id) or action_feedback(id)",
+        "ui_still_works": "Approve/Refuse on approval.request form → RPC approval.request.action_approve(id)",
+    },
+    "qil_legacy_todo": {
+        "label": "Legacy Ask For Review To-Do (quality.issue.log)",
+        "create": [
+            {
+                "module": "cap_quality_issue_log",
+                "file": "models/quality_issue_log.py",
+                "method": "ask_for_review()",
+                "detail": "Creates To-Do with summary 'Review Quality Issue' on quality.issue.log",
+            },
+        ],
+        "delete": [
+            {
+                "module": "(none in custom code)",
+                "detail": "accept_review() / refuse_review() change state only — activity is NOT removed",
+            },
+        ],
+        "gaps": [
+            {
+                "module": "cap_quality_issue_log",
+                "file": "models/quality_issue_log.py",
+                "method": "accept_review() / refuse_review()",
+                "detail": "Should unlink open activities (see cap_actions/models/action_validation.py for pattern)",
+            },
+        ],
+        "ui_error_trigger": "Bell / Activities on legacy To-Do after manual delete or duplicate ask_for_review",
+        "ui_still_works": "Accept/Refuse Review buttons on quality.issue.log form (no activity RPC)",
+    },
+}
 
 
 def _section(title):
@@ -147,15 +222,404 @@ class MailActivityTracer:
         except RpcError:
             return False
 
+    def _classify_activity_path(self, res_model, summary=None, activity_type_id=None):
+        """Return CODE_PATHS key for an activity or inferred document."""
+        approval_type_id = self._approval_activity_type_id()
+        if res_model == APPROVAL_MODEL:
+            return "approval_request"
+        if res_model == QIL_MODEL and summary == LEGACY_ACTIVITY_SUMMARY:
+            return "qil_legacy_todo"
+        if res_model == QIL_MODEL:
+            return "qil_legacy_todo"
+        return None
+
+    def print_code_path(self, path_key, context=None):
+        """Print human-readable code trace for a workflow path."""
+        spec = CODE_PATHS.get(path_key)
+        if not spec:
+            _warn(f"No code path map for {path_key!r}")
+            return
+
+        _section(f"CODE PATH — {spec['label']}")
+        if context:
+            for k, v in context.items():
+                _info(k, v)
+
+        print("\n  CREATE (where activity comes from):")
+        for row in spec["create"]:
+            loc = f"{row['module']}/{row['file']}" if row.get("file") else row["module"]
+            print(f"    • {loc} → {row['method']}")
+            if row.get("detail"):
+                print(f"      {row['detail']}")
+
+        print("\n  DELETE (what removes the activity):")
+        for row in spec["delete"]:
+            method = row.get("method", "")
+            print(f"    • {row['module']}" + (f" → {method}" if method else ""))
+            if row.get("detail"):
+                print(f"      {row['detail']}")
+
+        print("\n  GAPS in your custom code (likely fix locations):")
+        for row in spec["gaps"]:
+            loc = f"{row['module']}/{row['file']}" if row.get("file") else row["module"]
+            method = f" → {row['method']}" if row.get("method") else ""
+            print(f"    • {loc}{method}")
+            if row.get("detail"):
+                print(f"      {row['detail']}")
+
+        print(f"\n  UI → Missing Record: {spec['ui_error_trigger']}")
+        print(f"  UI → still works:     {spec['ui_still_works']}")
+
+        entry = {"path_key": path_key, "label": spec["label"], "context": context or {}}
+        self.report.setdefault("code_traces", []).append(entry)
+
+    def reproduce_missing_record(self, activity_id):
+        """
+        Replay the RPC calls the Odoo web client makes when opening/completing
+        a deleted activity. Confirms the exact server error from the popup.
+        """
+        _section(f"RPC REPRODUCE — mail.activity({activity_id}) Missing Record")
+
+        attempts = [
+            ("mail.activity / read", lambda: self.c.read(
+                "mail.activity", [activity_id],
+                fields=["id", "summary", "res_model", "res_id", "user_id"],
+            )),
+            ("mail.activity / action_feedback", lambda: self.c.call(
+                "mail.activity", "action_feedback", [activity_id],
+            )),
+        ]
+
+        results = {}
+        any_missing = False
+        for label, fn in attempts:
+            try:
+                fn()
+                results[label] = {"missing_record": False, "reproduced": False, "error": None}
+                _info(label, "succeeded (activity exists — error not reproduced now)")
+            except RpcError as exc:
+                is_missing = exc.is_missing_record
+                results[label] = {
+                    "missing_record": is_missing,
+                    "reproduced": is_missing,
+                    "error": str(exc),
+                }
+                if is_missing:
+                    any_missing = True
+                    _ok(f"{label} → Missing Record reproduced: {exc}")
+                else:
+                    _warn(f"{label} → other RPC error: {exc}")
+
+        self.report["reproduce"] = results
+        if any_missing:
+            self._add_finding(
+                "high", "error_reproduced",
+                f"Missing Record reproduced via RPC on mail.activity({activity_id})",
+                results,
+            )
+        return results
+
+    def trace_document_chain(self, res_model, res_id, user_id=None):
+        """Follow res_model/res_id from activity to related QIL / approval records."""
+        _section(f"DOCUMENT CHAIN — {res_model}({res_id})")
+
+        chain = {"res_model": res_model, "res_id": res_id, "related": {}}
+
+        if not self._record_exists(res_model, res_id):
+            _warn(f"Document {res_model}({res_id}) no longer exists")
+            chain["document_exists"] = False
+            self.report.setdefault("document_chains", []).append(chain)
+            return chain
+
+        chain["document_exists"] = True
+        if res_model == QIL_MODEL:
+            log = self.c.read(QIL_MODEL, [res_id], fields=[
+                "id", "display_name", "state", "employee_id", "write_date",
+            ])[0]
+            chain["quality_log"] = log
+            _info("Quality log", f"{log['id']} state={log['state']} {log.get('display_name')}")
+
+            link_field = self._qil_link_field_on_approval()
+            if link_field and self._model_available(APPROVAL_MODEL):
+                approvals = self.c.search_read(
+                    APPROVAL_MODEL, [(link_field, "=", res_id)],
+                    fields=["id", "name", "request_status", "write_date"],
+                    limit=5,
+                )
+                chain["related"]["approvals"] = approvals
+                for appr in approvals:
+                    act_count = len(self.c.search("mail.activity", [
+                        ("res_model", "=", APPROVAL_MODEL),
+                        ("res_id", "=", appr["id"]),
+                    ]))
+                    _info(f"  Linked approval {appr['id']}", f"status={appr['request_status']}, activities={act_count}")
+
+        elif res_model == APPROVAL_MODEL:
+            fields = ["id", "name", "request_status", "request_owner_id", "write_date"]
+            link_field = self._qil_link_field_on_approval()
+            if link_field:
+                fields.append(link_field)
+            approval = self.c.read(APPROVAL_MODEL, [res_id], fields=fields)[0]
+            chain["approval"] = approval
+            _info("Approval", f"{approval['id']} status={approval['request_status']} {approval.get('name')}")
+
+            if link_field and approval.get(link_field):
+                qil_id = approval[link_field][0] if isinstance(approval[link_field], (list, tuple)) else approval[link_field]
+                if self._record_exists(QIL_MODEL, qil_id):
+                    qil = self.c.read(QIL_MODEL, [qil_id], fields=["id", "state", "display_name"])[0]
+                    chain["related"]["quality_log"] = qil
+                    _info("  Linked QIL", f"{qil['id']} state={qil['state']}")
+
+            if user_id:
+                approver_lines = self.c.search_read(
+                    "approval.approver",
+                    [("request_id", "=", res_id), ("user_id", "=", user_id)],
+                    fields=["id", "status"],
+                )
+                chain["related"]["approver_lines"] = approver_lines
+                for line in approver_lines:
+                    _info("  Approver line for user", f"status={line['status']}")
+
+        self.report.setdefault("document_chains", []).append(chain)
+        return chain
+
+    def trace_back_deleted_activity(self, activity_id, user_id=None):
+        """
+        When the activity row is gone, infer the most likely workflow origin
+        from current DB state (finished approvals, reviewing QILs, etc.).
+        """
+        _section(f"REVERSE TRACE — infer origin of deleted mail.activity({activity_id})")
+
+        candidates = []
+        if user_id:
+            candidates.extend(self._infer_origins_for_user(user_id))
+
+        # Search chatter for the numeric activity id (rare but definitive)
+        msg_hits = self._search_messages_for_activity_id(activity_id)
+        if msg_hits:
+            for hit in msg_hits:
+                candidates.append({
+                    "confidence": "definitive",
+                    "path_key": self._classify_activity_path(hit.get("model"), hit.get("summary")),
+                    "reason": f"mail.message {hit['id']} references activity id in body/subject",
+                    "res_model": hit.get("model"),
+                    "res_id": hit.get("res_id"),
+                    "message_id": hit["id"],
+                })
+
+        if not candidates:
+            _warn("Could not infer document from DB — use SQL hints below or server logs at error time")
+            self.report["inferred_origins"] = []
+            return []
+
+        # De-duplicate and sort by confidence
+        seen = set()
+        unique = []
+        rank = {"definitive": 0, "high": 1, "medium": 2, "low": 3}
+        for c in sorted(candidates, key=lambda x: rank.get(x["confidence"], 9)):
+            key = (c.get("res_model"), c.get("res_id"), c.get("path_key"))
+            if key in seen:
+                continue
+            seen.add(key)
+            unique.append(c)
+
+        self.report["inferred_origins"] = unique
+        _info("Likely origins found", len(unique))
+
+        for i, c in enumerate(unique[:5], 1):
+            print(f"\n  --- Candidate {i} [{c['confidence']}] ---")
+            _info("Reason", c["reason"])
+            if c.get("res_model"):
+                _info("Document", f"{c['res_model']}({c.get('res_id')})")
+            path_key = c.get("path_key") or self._classify_activity_path(c.get("res_model"))
+            if path_key:
+                ctx = {k: v for k, v in c.items() if k not in ("path_key", "confidence", "reason")}
+                self.print_code_path(path_key, context=ctx)
+                if c.get("res_model") and c.get("res_id"):
+                    self.trace_document_chain(c["res_model"], c["res_id"], user_id=user_id)
+
+        return unique
+
+    def _infer_origins_for_user(self, user_id):
+        """Build candidate list from approvals + QIL state for the affected user."""
+        candidates = []
+        approval_type_id = self._approval_activity_type_id()
+        link_field = self._qil_link_field_on_approval()
+
+        if self._model_available(APPROVAL_MODEL):
+            # Finished approvals: activity deleted after approve/refuse (most common)
+            finished_lines = self.c.search_read(
+                "approval.approver",
+                [("user_id", "=", user_id), ("status", "in", ["approved", "refused"])],
+                fields=["request_id", "status", "write_date"],
+                order="write_date desc",
+                limit=25,
+            )
+            for line in finished_lines:
+                req_id = line["request_id"][0]
+                act_domain = [
+                    ("res_model", "=", APPROVAL_MODEL),
+                    ("res_id", "=", req_id),
+                    ("user_id", "=", user_id),
+                ]
+                if approval_type_id:
+                    act_domain.append(("activity_type_id", "=", approval_type_id))
+                if self.c.search("mail.activity", act_domain, limit=1):
+                    continue
+
+                approval = self.c.read(
+                    APPROVAL_MODEL, [req_id],
+                    fields=["id", "name", "request_status", "write_date"],
+                )[0]
+                ctx = {
+                    "approval_id": req_id,
+                    "approver_status": line["status"],
+                    "approval_status": approval["request_status"],
+                    "approver_write_date": line.get("write_date"),
+                }
+                if link_field:
+                    appr_full = self.c.read(APPROVAL_MODEL, [req_id], fields=[link_field])[0]
+                    qil_ref = appr_full.get(link_field)
+                    if qil_ref:
+                        qil_id = qil_ref[0] if isinstance(qil_ref, (list, tuple)) else qil_ref
+                        ctx["linked_qil_id"] = qil_id
+                        if self._record_exists(QIL_MODEL, qil_id):
+                            qil = self.c.read(QIL_MODEL, [qil_id], fields=["state"])[0]
+                            ctx["linked_qil_state"] = qil["state"]
+                            if qil["state"] == "reviewing":
+                                ctx["state_mismatch"] = (
+                                    f"QIL still reviewing but approval is {approval['request_status']}"
+                                )
+
+                candidates.append({
+                    "confidence": "high",
+                    "path_key": "approval_request",
+                    "reason": (
+                        f"User finished as approver on approval {req_id} ({line['status']}) "
+                        f"and no open approval activity remains — typical after approve/refuse"
+                    ),
+                    "res_model": APPROVAL_MODEL,
+                    "res_id": req_id,
+                    **ctx,
+                })
+
+            # Pending approver but activity missing (deleted orphan scenario)
+            pending_lines = self.c.search_read(
+                "approval.approver",
+                [("user_id", "=", user_id), ("status", "=", "pending")],
+                fields=["request_id", "write_date"],
+                order="write_date desc",
+                limit=15,
+            )
+            for line in pending_lines:
+                req_id = line["request_id"][0]
+                act_domain = [
+                    ("res_model", "=", APPROVAL_MODEL),
+                    ("res_id", "=", req_id),
+                    ("user_id", "=", user_id),
+                ]
+                if approval_type_id:
+                    act_domain.append(("activity_type_id", "=", approval_type_id))
+                if self.c.search("mail.activity", act_domain, limit=1):
+                    continue
+                candidates.append({
+                    "confidence": "medium",
+                    "path_key": "approval_request",
+                    "reason": (
+                        f"User is pending approver on approval {req_id} "
+                        f"but mail.activity was deleted — broken pending state"
+                    ),
+                    "res_model": APPROVAL_MODEL,
+                    "res_id": req_id,
+                })
+
+        # Legacy QIL To-Dos assigned to user
+        if self._model_available(QIL_MODEL):
+            legacy_acts = self.c.search_read(
+                "mail.activity",
+                [
+                    ("user_id", "=", user_id),
+                    ("res_model", "=", QIL_MODEL),
+                    ("summary", "=", LEGACY_ACTIVITY_SUMMARY),
+                ],
+                fields=["id", "res_id", "create_date"],
+                order="create_date desc",
+                limit=10,
+            )
+            for act in legacy_acts:
+                candidates.append({
+                    "confidence": "low",
+                    "path_key": "qil_legacy_todo",
+                    "reason": f"Open legacy To-Do activity {act['id']} still exists on QIL {act['res_id']}",
+                    "res_model": QIL_MODEL,
+                    "res_id": act["res_id"],
+                    "open_activity_id": act["id"],
+                })
+
+            # Reviewing QILs without activity (deleted legacy todo)
+            managed = self.c.search("hr.employee", [("parent_id.user_id", "=", user_id)], limit=200)
+            if managed:
+                reviewing = self.c.search_read(
+                    QIL_MODEL,
+                    [("employee_id", "in", managed), ("state", "=", "reviewing")],
+                    fields=["id", "display_name", "write_date"],
+                    order="write_date desc",
+                    limit=20,
+                )
+                for log in reviewing:
+                    qil_acts = self.c.search("mail.activity", [
+                        ("res_model", "=", QIL_MODEL),
+                        ("res_id", "=", log["id"]),
+                        ("user_id", "=", user_id),
+                    ])
+                    if qil_acts:
+                        continue
+                    candidates.append({
+                        "confidence": "medium",
+                        "path_key": "qil_legacy_todo",
+                        "reason": (
+                            f"QIL {log['id']} is reviewing but user has no open To-Do activity "
+                            f"(activity may have been deleted)"
+                        ),
+                        "res_model": QIL_MODEL,
+                        "res_id": log["id"],
+                    })
+
+        return candidates
+
+    def _search_messages_for_activity_id(self, activity_id):
+        """Best-effort search for chatter messages mentioning the activity id."""
+        if not self._model_available("mail.message"):
+            return []
+        needle = str(activity_id)
+        try:
+            return self.c.search_read(
+                "mail.message",
+                [
+                    ("model", "in", [QIL_MODEL, APPROVAL_MODEL, "mail.activity"]),
+                    "|",
+                    ("body", "ilike", needle),
+                    ("subject", "ilike", needle),
+                ],
+                fields=["id", "model", "res_id", "date", "subject"],
+                order="date desc",
+                limit=10,
+            )
+        except RpcError:
+            return []
+
     # ------------------------------------------------------------------
     # 1. Investigate specific activity id from error message
     # ------------------------------------------------------------------
 
-    def investigate_activity_id(self, activity_id, user_id=None):
+    def investigate_activity_id(self, activity_id, user_id=None, reproduce=True, code_path=True):
         _section(f"ACTIVITY INVESTIGATION — mail.activity({activity_id})")
 
         exists_now = self.c.exists("mail.activity", activity_id)
         _info("Activity exists in DB now", exists_now)
+
+        self.report["activity_id"] = activity_id
+        self.report["activity_exists"] = exists_now
 
         if exists_now:
             act = self.c.read("mail.activity", [activity_id], fields=[
@@ -168,6 +632,8 @@ class MailActivityTracer:
             _info("Created", act.get("create_date"))
             _info("Last updated", act.get("write_date"))
 
+            self.report["activity"] = act
+
             doc_ok = self._record_exists(act["res_model"], act["res_id"])
             _info("Underlying document exists", doc_ok)
             if not doc_ok:
@@ -178,6 +644,23 @@ class MailActivityTracer:
                 )
             else:
                 self._add_finding("info", "activity_alive", f"Activity {activity_id} is valid right now", act)
+
+            if code_path:
+                path_key = self._classify_activity_path(
+                    act["res_model"], summary=act.get("summary"),
+                )
+                if path_key:
+                    self.print_code_path(path_key, context={
+                        "activity_id": activity_id,
+                        "res_model": act["res_model"],
+                        "res_id": act["res_id"],
+                        "summary": act.get("summary"),
+                    })
+
+            uid = user_id
+            if not uid and act.get("user_id"):
+                uid = act["user_id"][0] if isinstance(act["user_id"], (list, tuple)) else act["user_id"]
+            self.trace_document_chain(act["res_model"], act["res_id"], user_id=uid)
             return act
 
         # Activity was deleted — this matches the production error
@@ -186,6 +669,11 @@ class MailActivityTracer:
             f"mail.activity({activity_id}) no longer exists — this IS the Missing Record error",
             {"activity_id": activity_id, "user_id": user_id},
         )
+
+        if reproduce:
+            self.reproduce_missing_record(activity_id)
+
+        self.trace_back_deleted_activity(activity_id, user_id=user_id)
 
         if user_id:
             self._trace_deleted_activity_for_user(activity_id, user_id)
@@ -566,9 +1054,23 @@ class MailActivityTracer:
   - Check if they clicked Approve twice or used both QIL buttons and approval form
 """)
 
-    def run(self, user_id=None, login=None, activity_id=None, search_logs=False, log_days=14):
+    def run(
+        self,
+        user_id=None,
+        login=None,
+        activity_id=None,
+        search_logs=False,
+        log_days=14,
+        reproduce=True,
+        code_path=True,
+    ):
         if activity_id:
-            self.investigate_activity_id(activity_id, user_id=user_id)
+            self.investigate_activity_id(
+                activity_id,
+                user_id=user_id,
+                reproduce=reproduce,
+                code_path=code_path,
+            )
 
         if user_id or login:
             self.audit_user(user_id=user_id, login=login)
@@ -581,6 +1083,15 @@ class MailActivityTracer:
         if search_logs:
             self.search_error_logs(days=log_days, user_id=user_id, activity_id=activity_id)
 
+        if not code_path:
+            pass
+        elif activity_id and self.report.get("code_traces"):
+            pass  # already printed during investigate
+        elif user_id or login:
+            _section("CODE PATH REFERENCE (both workflows)")
+            self.print_code_path("approval_request")
+            self.print_code_path("qil_legacy_todo")
+
         self.print_module_risk_summary()
 
         _section("TRACE COMPLETE")
@@ -588,6 +1099,11 @@ class MailActivityTracer:
         med = sum(1 for f in self.report["findings"] if f["severity"] == "medium")
         _info("High severity findings", high)
         _info("Medium severity findings", med)
+
+        if self.report.get("reproduce"):
+            repro = self.report["reproduce"]
+            if any(r.get("reproduced") for r in repro.values()):
+                _ok("Missing Record reproduced via RPC — see 'reproduce' section in JSON report")
 
         if high:
             _warn("High-risk mismatches found — users may hit Missing Record on next click")
@@ -614,6 +1130,16 @@ def parse_args(argv=None):
     p.add_argument("--search-logs", action="store_true", help="Search ir.logging table")
     p.add_argument("--log-days", type=int, default=14, help="Days of logs to search (default 14)")
     p.add_argument("--output", default=None, help="Write JSON report to this file")
+    p.add_argument(
+        "--no-reproduce",
+        action="store_true",
+        help="Skip RPC reproduce step (mail.activity read/action_feedback on deleted id)",
+    )
+    p.add_argument(
+        "--no-code-path",
+        action="store_true",
+        help="Skip code path mapping to module files",
+    )
 
     return p.parse_args(argv)
 
@@ -639,6 +1165,8 @@ def main(argv=None):
             activity_id=args.activity_id,
             search_logs=args.search_logs,
             log_days=args.log_days,
+            reproduce=not args.no_reproduce,
+            code_path=not args.no_code_path,
         )
         if args.output:
             with open(args.output, "w", encoding="utf-8") as f:
