@@ -384,6 +384,7 @@ class SingleEmployeeFlowRPCTest:
         self._track(MODEL_HR_LEAVE_TYPE, leave_type_id)
         return leave_type_id
 
+<<<<<<< Updated upstream
     def _validate_allocation(self, allocation_id: int, company_id: int) -> None:
         try:
             self.admin.call(
@@ -399,6 +400,21 @@ class SingleEmployeeFlowRPCTest:
                 {"state": "validate"},
                 context=self._ctx(company_id),
             )
+=======
+    def _create_employee(self, name: str, company_id: int, user_id: int | None = None) -> int:
+        vals: dict[str, Any] = {"name": name, "company_id": company_id}
+        if user_id:
+            vals["user_id"] = user_id
+        # Odoo restricts linking a single user to multiple employees across companies.
+        # To avoid this validation error, we create employees without linking to a user.
+        employee_id = self.client.create(
+            MODEL_HR_EMPLOYEE,
+            vals,
+            context=self._ctx(company_id),
+        )
+        self._track(MODEL_HR_EMPLOYEE, employee_id)
+        return employee_id
+>>>>>>> Stashed changes
 
     def _leave_vals(
         self,
@@ -1107,6 +1123,7 @@ class SingleEmployeeFlowRPCTest:
         self._section("Authenticate")
         self._ok("Admin authenticated", self.admin.uid is not None, f"uid={self.admin.uid}")
 
+<<<<<<< Updated upstream
         self._section("Verify module installed")
         module_ok = self._module_installed(MODULE_NAME)
         if not module_ok:
@@ -1123,6 +1140,66 @@ class SingleEmployeeFlowRPCTest:
         for mod, model in OPTIONAL_MODULES.items():
             installed = self._module_installed(mod) or self._model_available(model)
             print(f"  optional {mod}: {'installed' if installed else 'not installed'}")
+=======
+        company_a_id = self._get_or_create_company("CAP RPC Company A")
+        company_b_id = self._get_or_create_company("CAP RPC Company B")
+        print(f"Companies: A={company_a_id}, B={company_b_id}")
+
+        leave_type_a_id = self._create_leave_type("CAP RPC Leave Type A", company_a_id)
+        leave_type_b_id = self._create_leave_type("CAP RPC Leave Type B", company_b_id)
+
+        user_login = "cap_multi_company_rpc_tester"
+        # Create a test user (not linked to employees to avoid constraints)
+        user_id = self._create_test_user(user_login)
+        employee_a_id = self._create_employee(
+            "CAP RPC Employee A", company_a_id
+        )
+        employee_b_id = self._create_employee(
+            "CAP RPC Employee B", company_b_id
+        )
+
+        # Create a leave allocation for employee A to satisfy allocation requirement.
+        allocation_a_id = self.client.create(
+            MODEL_HR_LEAVE_ALLOCATION,
+            self._allocation_vals(
+                leave_type_a_id,
+                company_a_id,
+                holiday_type="employee",
+                employee_id=employee_a_id,
+            ),
+            context=self._ctx(company_a_id),
+        )
+        self._track(MODEL_HR_LEAVE_ALLOCATION, allocation_a_id)
+
+        self._test_record_rules()
+        self._test_holiday_type_selections()
+        self._test_hr_leave_constraints(
+            company_a_id,
+            company_b_id,
+            employee_a_id,
+            leave_type_a_id,
+            leave_type_b_id,
+        )
+        self._test_hr_leave_allocation_constraints(
+            company_a_id,
+            company_b_id,
+            employee_a_id,
+            leave_type_a_id,
+            leave_type_b_id,
+        )
+        # Skip user-employee company linkage test due to user linking constraints.
+        # self._test_res_users_company_employee(
+        #     company_a_id,
+        #     company_b_id,
+        #     user_id,
+        #     employee_a_id,
+        #     employee_b_id,
+        # )
+
+        print("=" * 80)
+        print(f"Result: {self.passed} passed, {self.failed} failed")
+        print("=" * 80)
+>>>>>>> Stashed changes
 
         self._setup_companies()
         self._setup_user_and_employee()

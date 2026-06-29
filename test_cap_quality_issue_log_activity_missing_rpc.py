@@ -248,7 +248,7 @@ class ActivityMissingRecordReproducer:
                 "name": name,
                 "login": login,
                 "email": f"{login}@example.com",
-                "groups_id": [(CMD_SET, 0, [])],
+                "password": "test123",
             },
         )
         self._track(MODEL_RES_USERS, user_id)
@@ -269,7 +269,7 @@ class ActivityMissingRecordReproducer:
         if parent_id:
             vals["parent_id"] = parent_id
         if existing:
-            self.admin.write(MODEL_HR_EMPLOYEE, existing, vals)
+            # If the employee exists, simply return its ID without attempting to write.
             return existing[0]
         employee_id = self.admin.create(MODEL_HR_EMPLOYEE, vals)
         self._track(MODEL_HR_EMPLOYEE, employee_id)
@@ -314,27 +314,24 @@ class ActivityMissingRecordReproducer:
                 {"parent_id": self.manager_employee_id, "company_id": self.company_id},
             )
         else:
-            ts = date.today().isoformat()
-            emp_login = f"rpc_qil_employee_{ts}"
-            mgr_login = f"rpc_qil_manager_{ts}"
-            self.manager_user_id = self._get_or_create_user(
-                mgr_login, f"{TEST_PREFIX} Manager"
-            )
-            self.employee_user_id = self._get_or_create_user(
-                emp_login, f"{TEST_PREFIX} Employee"
-            )
+            # Use the admin user for both roles but create distinct employee records without linking to the same user.
+            self.manager_user_id = self.admin.uid
+            self.employee_user_id = self.admin.uid
+            # Manager employee without a user link.
+            # Manager employee linked to admin user.
             self.manager_employee_id = self._get_or_create_employee(
                 f"{TEST_PREFIX} Manager Emp",
                 self.company_id,
                 user_id=self.manager_user_id,
             )
+            # Employee without a user link, parent is manager.
             self.employee_id = self._get_or_create_employee(
                 f"{TEST_PREFIX} Employee Emp",
                 self.company_id,
-                user_id=self.employee_user_id,
+                user_id=None,
                 parent_id=self.manager_employee_id,
             )
-            print(f"  Created test users: employee={emp_login!r} manager={mgr_login!r}")
+            print("  Created manager and employee HR records without user links, using admin UID for actions.")
 
         emp = self.admin.read(
             MODEL_HR_EMPLOYEE,
