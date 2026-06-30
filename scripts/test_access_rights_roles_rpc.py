@@ -10,15 +10,31 @@ picks it up automatically — no hardcoded model list required.
 Uses ONE admin login + ONE test user. Each role is assigned individually and tested
 for read / write / create / unlink (ACL + CRUD + record rules on existing data).
 
-Outputs a **break report** showing exactly which role × model × operation fails.
+Outputs a **break report** showing exactly which role × model × operation fails,
+plus an **OVERALL ACCESS VERDICT** per role:
+
+- **CLEAN** — no security violations and no configuration gaps
+- **GAPS** — ACL/config gaps (under-access) but no rule violations
+- **VIOLATES** — over-access detected (user has permission ACL does not grant)
 
 Run::
 
+    # Test all 39 roles from data/roles_data.xml (default)
     python3 scripts/test_access_rights_roles_rpc.py \\
         --url http://localhost:8069 --db odoo --user admin --password admin
 
+    # Remote / ngrok instance
+    python3 scripts/test_access_rights_roles_rpc.py \\
+        --url https://your-ngrok.ngrok-free.app \\
+        --db odoo19_captivea2 --user admin1 --password a \\
+        --report-file /tmp/access_breaks.json
+
+    # All roles in database + JSON break report
     python3 scripts/test_access_rights_roles_rpc.py --roles-from db \\
         --report-file /tmp/access_breaks.json
+
+    # Single role (faster)
+    python3 scripts/test_access_rights_roles_rpc.py --roles President --skip-crud
 """
 from __future__ import annotations
 
@@ -123,6 +139,28 @@ CRUD_MUTATION_PREFIX_BLOCKLIST = (
     "bus.",
 )
 
+# Break categories for overall verdict (lower = higher severity).
+BREAK_CATEGORY_SECURITY = "security_violation"
+BREAK_CATEGORY_CONFIG_GAP = "config_gap"
+BREAK_CATEGORY_CRUD_DENIED = "crud_denied"
+BREAK_CATEGORY_RECORD_SCOPE = "record_rule_scope"
+BREAK_CATEGORY_RPC_BLOCKED = "rpc_blocked"
+BREAK_CATEGORY_SMOKE = "smoke_limit"
+BREAK_CATEGORY_OTHER = "other"
+
+_CATEGORY_PRIORITY = {
+    BREAK_CATEGORY_SECURITY: 0,
+    BREAK_CATEGORY_CONFIG_GAP: 1,
+    BREAK_CATEGORY_CRUD_DENIED: 2,
+    BREAK_CATEGORY_RECORD_SCOPE: 3,
+    BREAK_CATEGORY_RPC_BLOCKED: 4,
+    BREAK_CATEGORY_SMOKE: 5,
+    BREAK_CATEGORY_OTHER: 6,
+}
+
+_RPC_BLOCKED_MARKER = "rpc call on"
+_RPC_BLOCKED_SUFFIX = "is not allowed"
+
 
 # ---------------------------------------------------------------------------
 # RPC client (JSON-RPC + XML-RPC, Odoo 19)
@@ -181,10 +219,13 @@ class OdooRPCClient:
             "params": {"service": service, "method": method, "args": args},
             "id": self._json_id,
         }
+        headers = {"Content-Type": "application/json"}
+        if "ngrok" in self.url:
+            headers["ngrok-skip-browser-warning"] = "true"
         req = Request(
             f"{self.url}/jsonrpc",
             data=json.dumps(payload).encode("utf-8"),
-            headers={"Content-Type": "application/json"},
+            headers=headers,
             method="POST",
         )
         try:
@@ -329,6 +370,7 @@ class AccessRightsRoleRPCTest:
         test_password: str,
         role_defs: list[tuple[str, str]],
         roles_from: str = "xml",
+        role_filter: list[str] | None = None,
         report_file: str | None = None,
         skip_smoke: bool = False,
         smoke_mode: str = "access",
@@ -343,6 +385,7 @@ class AccessRightsRoleRPCTest:
         self.test_password = test_password
         self.role_defs = role_defs
         self.roles_from = roles_from
+        self.role_filter = role_filter
         self.report_file = report_file
         self.skip_smoke = skip_smoke
         self.smoke_mode = smoke_mode
@@ -362,6 +405,9 @@ class AccessRightsRoleRPCTest:
         self.all_breaks: list[dict[str, Any]] = []
         self.breaks_by_role: dict[str, list[dict[str, Any]]] = defaultdict(list)
         self.breaks_by_model: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        self._role_model_cache: dict[int, str] = {}
+        self._rpc_disabled_models: set[str] = set()
+        self._any_access_violation = False
 
     def _ok(self, label: str, condition: bool, detail: str = "") -> bool:
         status = "PASS" if condition else "FAIL"
@@ -392,6 +438,7 @@ class AccessRightsRoleRPCTest:
         layer: str,
         message: str,
         rules: list[str] | None = None,
+        category: str | None = None,
     ) -> None:
         entry = {
             "role": role_name,
@@ -401,26 +448,187 @@ class AccessRightsRoleRPCTest:
             "layer": layer,
             "message": message,
             "rules": rules or [],
+            "category": category
+            or self._categorize_break(layer, message, model),
         }
         self.all_breaks.append(entry)
         self.breaks_by_role[role_name].append(entry)
         self.breaks_by_model[model].append(entry)
         print(
-            f"    [BREAK] {role_name} | {model}.{operation} | {layer} | {message}"
+            f"    [BREAK] {role_name} | {model}.{operation} | {entry['category']} | {message}"
         )
         if rules and self.verbose:
             print(f"            rules: {', '.join(rules[:5])}")
         self.failed += 1
 
+    @staticmethod
+    def _is_rpc_blocked_message(message: str) -> bool:
+        msg = message.lower()
+        return _RPC_BLOCKED_MARKER in msg and _RPC_BLOCKED_SUFFIX in msg
+
+    def _categorize_break(self, layer: str, message: str, model: str) -> str:
+        if layer == "security":
+            return BREAK_CATEGORY_SECURITY
+        if self._is_rpc_blocked_message(message) or model in self._rpc_disabled_models:
+            if layer == "acl" or "check_access_rights denied" in message.lower():
+                return BREAK_CATEGORY_RPC_BLOCKED
+        if layer == "record_rule" or "write denied on visible record" in message:
+            return BREAK_CATEGORY_RECORD_SCOPE
+        if layer == "smoke":
+            return BREAK_CATEGORY_SMOKE
+        if layer == "crud":
+            return BREAK_CATEGORY_CRUD_DENIED
+        if layer == "acl":
+            return BREAK_CATEGORY_CONFIG_GAP
+        return BREAK_CATEGORY_OTHER
+
+    def _load_rpc_disabled_models(self) -> set[str]:
+        """Models where rpc_helper blocks all RPC (false positives for ACL checks)."""
+        disabled: set[str] = set()
+        try:
+            rows = self.admin.execute_kw(
+                "ir.model",
+                "search_read",
+                [[]],
+                {"fields": ["model", "rpc_config"]},
+            )
+        except RuntimeError:
+            return disabled
+        for row in rows:
+            config = row.get("rpc_config") or {}
+            if isinstance(config, dict) and "all" in (config.get("disable") or []):
+                disabled.add(row["model"])
+        return disabled
+
+    @staticmethod
+    def _dedupe_breaks(breaks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Keep the highest-severity break per model × operation."""
+        best: dict[tuple[str, str], dict[str, Any]] = {}
+        for entry in breaks:
+            key = (entry["model"], entry["operation"])
+            cat = entry.get("category", BREAK_CATEGORY_OTHER)
+            pri = _CATEGORY_PRIORITY.get(cat, 99)
+            if key not in best or pri < _CATEGORY_PRIORITY.get(
+                best[key].get("category", BREAK_CATEGORY_OTHER), 99
+            ):
+                best[key] = entry
+        return list(best.values())
+
+    def _compute_role_verdict(self, role_name: str) -> dict[str, Any]:
+        breaks = self._dedupe_breaks(self.breaks_by_role.get(role_name, []))
+        counts: dict[str, int] = defaultdict(int)
+        for entry in breaks:
+            counts[entry.get("category", BREAK_CATEGORY_OTHER)] += 1
+
+        security = counts[BREAK_CATEGORY_SECURITY]
+        config_gap = counts[BREAK_CATEGORY_CONFIG_GAP]
+        crud_denied = counts[BREAK_CATEGORY_CRUD_DENIED]
+        record_scope = counts[BREAK_CATEGORY_RECORD_SCOPE]
+        rpc_blocked = counts[BREAK_CATEGORY_RPC_BLOCKED]
+        smoke = counts[BREAK_CATEGORY_SMOKE]
+        other = counts[BREAK_CATEGORY_OTHER]
+
+        violates = security > 0
+        actionable_gaps = config_gap + crud_denied
+
+        if violates:
+            verdict = "VIOLATES"
+            summary = (
+                f"VIOLATES access rules — {security} over-access issue(s) "
+                f"(user has permission ACL does not grant)"
+            )
+        elif actionable_gaps:
+            verdict = "GAPS"
+            summary = (
+                f"Does NOT violate rules, but {actionable_gaps} configuration gap(s) "
+                f"(ACL grants access that checks deny)"
+            )
+        elif breaks:
+            verdict = "CLEAN"
+            summary = (
+                f"Does NOT violate access rules — {len(breaks)} finding(s) are "
+                f"expected scoping ({record_scope}), RPC limits ({rpc_blocked}), "
+                f"or smoke noise ({smoke})"
+            )
+        else:
+            verdict = "CLEAN"
+            summary = "Does NOT violate access rules — no issues detected"
+
+        return {
+            "verdict": verdict,
+            "violates_access_rules": violates,
+            "summary": summary,
+            "break_counts": dict(counts),
+            "security_violations": security,
+            "config_gaps": config_gap,
+            "crud_denied": crud_denied,
+            "record_rule_scope": record_scope,
+            "rpc_blocked": rpc_blocked,
+            "smoke_limit": smoke,
+            "other": other,
+            "unique_breaks": len(breaks),
+        }
+
+    def _print_overall_verdict(self) -> None:
+        print("\n" + "=" * 80)
+        print("OVERALL ACCESS VERDICT")
+        print("=" * 80)
+        any_violation = False
+        for role_name, res in self.role_results.items():
+            verdict = res.get("access_verdict", {})
+            if not verdict:
+                continue
+            v = verdict["verdict"]
+            if verdict["violates_access_rules"]:
+                any_violation = True
+            print(f"\n  {role_name}: {v}")
+            print(f"    {verdict['summary']}")
+            bc = verdict["break_counts"]
+            if bc:
+                parts = [f"{k}={v}" for k, v in sorted(bc.items()) if v]
+                print(f"    Breakdown (deduped): {', '.join(parts)}")
+
+        print("\n" + "-" * 80)
+        if len(self.role_results) == 1:
+            only = next(iter(self.role_results.values()))
+            v = only.get("access_verdict", {})
+            if v.get("violates_access_rules"):
+                print("  RESULT: Role VIOLATES access rules (over-access detected).")
+            elif v.get("verdict") == "GAPS":
+                print("  RESULT: Role does NOT violate rules; configuration gaps found.")
+            else:
+                print("  RESULT: Role does NOT violate access rules.")
+        else:
+            violating = [
+                n
+                for n, r in self.role_results.items()
+                if r.get("access_verdict", {}).get("violates_access_rules")
+            ]
+            if violating:
+                print(
+                    f"  RESULT: {len(violating)} role(s) VIOLATE access rules: "
+                    f"{', '.join(violating)}"
+                )
+                any_violation = True
+            else:
+                print("  RESULT: No role violates access rules (no over-access detected).")
+        print("=" * 80)
+        self._any_access_violation = any_violation
+
     def _classify_rpc_error(self, exc: RuntimeError) -> str:
         msg = str(exc).lower()
+        if self._is_rpc_blocked_message(msg):
+            return "rpc_blocked"
         if any(marker in msg for marker in _ACCESS_DENIED_MARKERS):
             return "denied"
         if any(marker in msg for marker in _VALIDATION_MARKERS):
             return "validation"
         return "skip"
 
-    def _expect_access_ok(self, client: OdooRPCClient, model: str, operation: str) -> bool:
+    def _check_access_outcome(
+        self, client: OdooRPCClient, model: str, operation: str
+    ) -> str:
+        """Return allowed | denied | rpc_blocked | skip."""
         try:
             client.execute_kw(
                 model,
@@ -428,9 +636,52 @@ class AccessRightsRoleRPCTest:
                 [operation],
                 {"raise_exception": True},
             )
-            return True
-        except RuntimeError:
-            return False
+            return "allowed"
+        except RuntimeError as exc:
+            outcome = self._classify_rpc_error(exc)
+            if outcome == "rpc_blocked":
+                return "rpc_blocked"
+            if outcome == "denied":
+                return "denied"
+            return "skip"
+
+    def _expect_access_ok(self, client: OdooRPCClient, model: str, operation: str) -> bool:
+        return self._check_access_outcome(client, model, operation) == "allowed"
+
+    def _test_unexpected_access(
+        self,
+        tester: OdooRPCClient,
+        model_perms: dict[str, dict[str, bool]],
+        role_name: str,
+        role_id: int,
+        rules_by_model: dict[str, list[str]],
+    ) -> int:
+        """Detect over-access: ACL denies but check_access_rights allows."""
+        violations = 0
+        for model_name in sorted(model_perms):
+            perms = model_perms[model_name]
+            for op in ("read", "write", "create", "unlink"):
+                if perms.get(op):
+                    continue
+                outcome = self._check_access_outcome(tester, model_name, op)
+                if outcome != "allowed":
+                    continue
+                violations += 1
+                self._record_break(
+                    role_name,
+                    role_id,
+                    model_name,
+                    op,
+                    "security",
+                    "ACL does not grant permission but check_access_rights allowed",
+                    rules_by_model.get(model_name),
+                    category=BREAK_CATEGORY_SECURITY,
+                )
+        if violations:
+            print(f"  Over-access (security): {violations} violation(s)")
+        else:
+            print("  Over-access (security): 0 violations")
+        return violations
 
     def _rpc_safe(
         self,
@@ -451,6 +702,30 @@ class AccessRightsRoleRPCTest:
         outcome, _ = self._rpc_safe(client, model, "search", [[]], {"limit": 1})
         return outcome if outcome in ("ok", "denied") else "skip"
 
+    def _model_technical_name_cache(self, *rule_lists: list[dict]) -> dict[int, str]:
+        """Map ir.model database id -> technical name (e.g. sale.order).
+
+        ir.model.access / ir.rule ``model_id`` m2o reads as [id, display_name];
+        RPC must use the technical ``model`` field, not the display name.
+        """
+        ir_model_ids: set[int] = set()
+        for rules in rule_lists:
+            for rule in rules:
+                mid = rule.get("model_id")
+                if mid:
+                    ir_model_ids.add(mid[0] if isinstance(mid, (list, tuple)) else mid)
+        if not ir_model_ids:
+            return {}
+        rows = self.admin.read("ir.model", list(ir_model_ids), ["model", "transient"])
+        return {r["id"]: r["model"] for r in rows if not r.get("transient")}
+
+    def _rule_model_technical(self, rule: dict) -> str | None:
+        mid = rule.get("model_id")
+        if not mid:
+            return None
+        ir_id = mid[0] if isinstance(mid, (list, tuple)) else mid
+        return self._role_model_cache.get(ir_id)
+
     def _build_model_permissions(
         self, access_rules: list[dict]
     ) -> dict[str, dict[str, bool]]:
@@ -459,9 +734,9 @@ class AccessRightsRoleRPCTest:
             lambda: {"read": False, "write": False, "create": False, "unlink": False}
         )
         for rule in access_rules:
-            if not rule.get("model_id"):
+            model_name = self._rule_model_technical(rule)
+            if not model_name:
                 continue
-            model_name = rule["model_id"][1]
             for perm_field, op in PERM_TO_OP.items():
                 if rule.get(perm_field):
                     perms[model_name][op] = True
@@ -629,11 +904,16 @@ class AccessRightsRoleRPCTest:
         )
 
     @staticmethod
-    def _rules_by_model(record_rules: list[dict]) -> dict[str, list[str]]:
+    def _rules_by_model(record_rules: list[dict], model_cache: dict[int, str]) -> dict[str, list[str]]:
         by_model: dict[str, list[str]] = defaultdict(list)
         for rule in record_rules:
-            if rule.get("model_id"):
-                by_model[rule["model_id"][1]].append(rule.get("name") or "?")
+            mid = rule.get("model_id")
+            if not mid:
+                continue
+            ir_id = mid[0] if isinstance(mid, (list, tuple)) else mid
+            technical = model_cache.get(ir_id)
+            if technical:
+                by_model[technical].append(rule.get("name") or "?")
         return dict(by_model)
 
     def _resolve_test_models(
@@ -651,11 +931,16 @@ class AccessRightsRoleRPCTest:
             models = set()
             source = "groups → ir.model.access + ir.rule"
         for rule in access_rules:
-            if rule.get("model_id"):
-                models.add(rule["model_id"][1])
+            name = self._rule_model_technical(rule)
+            if name:
+                models.add(name)
         for rule in record_rules:
-            if rule.get("model_id"):
-                models.add(rule["model_id"][1])
+            mid = rule.get("model_id")
+            if mid:
+                ir_id = mid[0] if isinstance(mid, (list, tuple)) else mid
+                name = self._role_model_cache.get(ir_id)
+                if name:
+                    models.add(name)
         return sorted(models), source
 
     def _build_model_permissions_from_access_and_rules(
@@ -665,9 +950,9 @@ class AccessRightsRoleRPCTest:
     ) -> dict[str, dict[str, bool]]:
         perms = self._build_model_permissions(access_rules)
         for rule in record_rules:
-            if not rule.get("model_id"):
+            model_name = self._rule_model_technical(rule)
+            if not model_name:
                 continue
-            model_name = rule["model_id"][1]
             if model_name not in perms:
                 perms[model_name] = {
                     "read": False,
@@ -696,7 +981,7 @@ class AccessRightsRoleRPCTest:
         passed = failed = 0
         expected: dict[tuple[str, str], bool] = {}
         for rule in access_rules:
-            model_name = rule["model_id"][1] if rule.get("model_id") else None
+            model_name = self._rule_model_technical(rule)
             if not model_name:
                 continue
             for perm_field, operation in PERM_TO_OP.items():
@@ -1105,7 +1390,7 @@ class AccessRightsRoleRPCTest:
             for b in breaks:
                 rules = f" | rules: {', '.join(b['rules'][:3])}" if b.get("rules") else ""
                 print(
-                    f"  - {b['model']}.{b['operation']} [{b['layer']}] "
+                    f"  - {b['model']}.{b['operation']} [{b.get('category', b['layer'])}] "
                     f"{b['message']}{rules}"
                 )
 
@@ -1118,7 +1403,8 @@ class AccessRightsRoleRPCTest:
             print(f"\n## {model_name} ({len(breaks)} break(s), roles: {', '.join(roles)})")
             for b in breaks:
                 print(
-                    f"  - {b['role']}.{b['operation']} [{b['layer']}] {b['message']}"
+                    f"  - {b['role']}.{b['operation']} "
+                    f"[{b.get('category', b['layer'])}] {b['message']}"
                 )
 
     def _write_report_file(self, roles_tested: int) -> None:
@@ -1129,6 +1415,7 @@ class AccessRightsRoleRPCTest:
             "database": self.admin.db,
             "url": self.admin.url,
             "roles_tested": roles_tested,
+            "violates_access_rules": self._any_access_violation,
             "total_breaks": len(self.all_breaks),
             "passed_checks": self.passed,
             "failed_checks": self.failed,
@@ -1137,6 +1424,10 @@ class AccessRightsRoleRPCTest:
             "breaks_by_role": dict(self.breaks_by_role),
             "breaks_by_model": dict(self.breaks_by_model),
             "role_summary": self.role_results,
+            "access_verdicts": {
+                name: res.get("access_verdict", {})
+                for name, res in self.role_results.items()
+            },
         }
         path = Path(self.report_file)
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -1150,6 +1441,7 @@ class AccessRightsRoleRPCTest:
                         "model",
                         "operation",
                         "layer",
+                        "category",
                         "message",
                         "rules",
                     ],
@@ -1186,6 +1478,7 @@ class AccessRightsRoleRPCTest:
             "record_rules_count": 0,
             "smoke_mode": self.smoke_mode,
             "status": "FAIL",
+            "security_violations": 0,
         }
 
         try:
@@ -1215,7 +1508,10 @@ class AccessRightsRoleRPCTest:
 
         access_rules = self._get_role_access_rules(role_id)
         record_rules = self._get_role_record_rules(role_id)
-        rules_by_model = self._rules_by_model(record_rules)
+        self._role_model_cache = self._model_technical_name_cache(
+            access_rules, record_rules
+        )
+        rules_by_model = self._rules_by_model(record_rules, self._role_model_cache)
         model_perms = self._build_model_permissions_from_access_and_rules(
             access_rules, record_rules
         )
@@ -1239,6 +1535,11 @@ class AccessRightsRoleRPCTest:
             print(f"  ACL check_access_rights: {ap} passed, {af} failed")
         else:
             self._skip("No ir.model.access for role groups", role_name)
+
+        if model_perms:
+            result["security_violations"] = self._test_unexpected_access(
+                tester, model_perms, role_name, role_id, rules_by_model
+            )
 
         try:
             if not self.skip_crud and model_perms:
@@ -1289,8 +1590,16 @@ class AccessRightsRoleRPCTest:
             self._cleanup_created_records()
 
         result["break_count"] = len(self.breaks_by_role.get(role_name, []))
-        if result["break_count"] == 0 and result["groups_ok"]:
-            result["status"] = "PASS"
+        result["access_verdict"] = self._compute_role_verdict(role_name)
+        verdict = result["access_verdict"]
+        if result.get("status") != "ERROR":
+            if verdict["violates_access_rules"]:
+                result["status"] = "VIOLATES"
+            elif verdict["verdict"] == "GAPS":
+                result["status"] = "GAPS"
+            elif result["groups_ok"]:
+                result["status"] = "PASS"
+        print(f"  Access verdict: {verdict['verdict']} — {verdict['summary']}")
         return result
 
     def run(self) -> bool:
@@ -1302,11 +1611,21 @@ class AccessRightsRoleRPCTest:
         print("=" * 80)
 
         roles = resolve_roles(self.admin, self.role_defs, self.roles_from)
+        if self.role_filter:
+            wanted = {n.lower() for n in self.role_filter}
+            roles = [r for r in roles if r["name"].lower() in wanted]
+            print(f"Filtered to {len(roles)} role(s): {', '.join(r['name'] for r in roles)}")
         if not roles:
             print("ERROR: No roles found. Install base_user_role and load roles_data.xml.")
             return False
 
         ir_models = self._load_ir_models()
+        self._rpc_disabled_models = self._load_rpc_disabled_models()
+        if self._rpc_disabled_models:
+            print(
+                f"RPC-blocked models (rpc_helper): {len(self._rpc_disabled_models)} "
+                f"(ACL breaks on these are classified as test noise)"
+            )
         print(f"Found {len(roles)} role(s) | {len(ir_models)} model(s) in ir.model (dynamic)")
         print(
             f"Discovery: role groups → ir.model.access + ir.rule "
@@ -1340,19 +1659,22 @@ class AccessRightsRoleRPCTest:
         print("ROLE SUMMARY")
         print("=" * 80)
         print(
-            f"{'Role':<28} {'Status':<7} {'Breaks':<7} {'Models':<8} "
-            f"{'ACL':<8} {'Rules':<8}"
+            f"{'Role':<28} {'Verdict':<9} {'Violates':<9} {'Breaks':<7} {'Models':<8} "
+            f"{'ACL':<8}"
         )
-        print("-" * 75)
+        print("-" * 80)
         for name, res in self.role_results.items():
             access = f"{res['access_pass']}/{res['access_fail']}"
+            av = res.get("access_verdict", {})
+            verdict = av.get("verdict", res["status"])
+            violates = "YES" if av.get("violates_access_rules") else "NO"
             print(
-                f"{name:<28} {res['status']:<7} {res.get('break_count', 0):<7} "
-                f"{res.get('models_tested', 0):<8} {access:<8} "
-                f"{res.get('record_rules_count', 0):<8}"
+                f"{name:<28} {verdict:<9} {violates:<9} {res.get('break_count', 0):<7} "
+                f"{res.get('models_tested', 0):<8} {access:<8}"
             )
 
         self._print_break_report()
+        self._print_overall_verdict()
         self._write_report_file(len(roles))
 
         print("=" * 80)
@@ -1360,9 +1682,9 @@ class AccessRightsRoleRPCTest:
             f"Total: {self.passed} passed, {self.failed} failed (breaks), "
             f"{self.skipped} skipped across {len(self.role_results)} role(s)"
         )
-        print(f"Unique breaks: {len(self.all_breaks)}")
+        print(f"Unique breaks (raw): {len(self.all_breaks)}")
         print("=" * 80)
-        return len(self.all_breaks) == 0
+        return not self._any_access_violation
 
 
 def parse_args() -> argparse.Namespace:
@@ -1394,10 +1716,19 @@ def parse_args() -> argparse.Namespace:
         help="Path to data/roles_data.xml",
     )
     parser.add_argument(
+        "--roles",
+        nargs="+",
+        metavar="NAME",
+        help="Test only these role names (e.g. --roles President CFO). Default: all roles",
+    )
+    parser.add_argument(
         "--roles-from",
         choices=["xml", "db"],
         default="xml",
-        help="Role source: 'xml' = data/roles_data.xml (default), 'db' = all res.users.role",
+        help=(
+            "Role source: 'xml' = all roles from data/roles_data.xml (default); "
+            "'db' = every res.users.role in the database"
+        ),
     )
     parser.add_argument(
         "--report-file",
@@ -1461,6 +1792,7 @@ def main() -> int:
         test_password=args.test_password,
         role_defs=role_defs,
         roles_from=args.roles_from,
+        role_filter=args.roles,
         report_file=args.report_file or None,
         skip_smoke=args.skip_smoke,
         smoke_mode=args.smoke_mode,
