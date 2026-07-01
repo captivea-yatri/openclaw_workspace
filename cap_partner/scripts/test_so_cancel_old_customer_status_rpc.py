@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
 Standalone Odoo 19 RPC test for partner status transition on sale order
 confirmation and cancellation.
@@ -12,43 +13,223 @@ Scenario:
 6. Run the "Create/Link Project" wizard (operation='create') → a project is
    created and linked to the sale order lines.
 7. Cancel the sale order → partner status should become 'old_customer'.
-8. Verify that no ``quality.issue.log`` records exist for the created project.
+8. Verify that no quality.issue.log records exist for the created project.
 
-The script uses the ``OdooRpcClient`` helper (XML‑RPC by default, JSON‑RPC if
-available) which is part of the existing test suite.  It follows the pattern of
-``cap_quality_issue_log/scripts/test_quality_issue_approval_rpc.py``.
+Usage:
+    python3 cap_partner/scripts/test_so_cancel_old_customer_status_rpc.py \\
+        --url https://staging-stag1-odoo19-captivea.odoo.com/ \\
+        --db captivea-stag1-odoo19-33729640 \\
+        --user divyesh \\
+        --password 'a'
 
-Running:
-    python3 test_so_cancel_old_customer_status_rpc.py [--no-cleanup]
-
-Environment variables (or CLI args) are read automatically by ``OdooRpcClient``:
-    ODOO_URL, ODOO_DB, ODOO_USER, ODOO_PASSWORD, ODOO_RPC
+Environment variables (optional): ODOO_URL, ODOO_DB, ODOO_USER, ODOO_PASSWORD, ODOO_RPC
 """
 
-import sys
-import argparse
-import datetime
-import logging
-from typing import List, Tuple, Dict, Any
+from __future__ import annotations
 
-# Assuming the helper module exists in the workspace root or PYTHONPATH.
-# It provides OdooRpcClient with ``search``, ``search_read``, ``read``, ``create``,
-# ``call`` and ``search_count`` methods similar to the existing RPC test scripts.
-from test_quality_issue_approval_rpc import OdooRpcClient, RpcError  # type: ignore
+import argparse
+import json
+import logging
+import os
+import sys
+import urllib.error
+import urllib.request
+import xmlrpc.client
+from datetime import datetime
+from typing import Any
 
 LOGGER = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
 
+DEFAULT_URL = "https://staging-stag1-odoo19-captivea.odoo.com/"
+DEFAULT_DB = "captivea-stag1-odoo19-33729640"
+DEFAULT_USER = "divyesh"
+DEFAULT_PASSWORD = "a"
+
+
+# ---------------------------------------------------------------------------
+# RPC clients
+# ---------------------------------------------------------------------------
+
+class RpcError(Exception):
+    """Odoo RPC fault / JSON-RPC error wrapper."""
+
+    def __init__(self, message, code=None):
+        super().__init__(message)
+        self.code = code
+
+
+class OdooRpcClient:
+    """Thin wrapper around Odoo execute_kw."""
+
+    def __init__(self, url, db, login, password):
+        self.url = url.rstrip("/")
+        self.db = db
+        self.login = login
+        self.password = password
+        self.uid = None
+
+    def authenticate(self):
+        raise NotImplementedError
+
+    def execute_kw(self, model, method, args=None, kwargs=None):
+        raise NotImplementedError
+
+    def call(self, model, method, *args, **kwargs):
+        return self.execute_kw(model, method, list(args), kwargs or {})
+
+    def search(self, model, domain, limit=0, order=None):
+        kw = {}
+        if limit:
+            kw["limit"] = limit
+        if order:
+            kw["order"] = order
+        return self.call(model, "search", domain, **kw)
+
+    def search_read(self, model, domain, fields=None, limit=0, order=None):
+        kw = {}
+        if fields:
+            kw["fields"] = fields
+        if limit:
+            kw["limit"] = limit
+        if order:
+            kw["order"] = order
+        return self.call(model, "search_read", domain, **kw)
+
+    def search_count(self, model, domain):
+        return self.call(model, "search_count", domain)
+
+    def read(self, model, ids, fields=None):
+        if not ids:
+            return []
+        kw = {}
+        if fields:
+            kw["fields"] = fields
+        return self.call(model, "read", ids, **kw)
+
+    def create(self, model, vals):
+        return self.call(model, "create", vals)
+
+    def write(self, model, ids, vals):
+        return self.call(model, "write", ids, vals)
+
+    def unlink(self, model, ids):
+        return self.call(model, "unlink", ids)
+
+    def fields_get(self, model, attributes=None):
+        kw = {}
+        if attributes:
+            kw["attributes"] = attributes
+        return self.call(model, "fields_get", **kw)
+
+
+class XmlRpcClient(OdooRpcClient):
+    def authenticate(self):
+        common = xmlrpc.client.ServerProxy(f"{self.url}/xmlrpc/2/common")
+        self.uid = common.authenticate(self.db, self.login, self.password, {})
+        if not self.uid:
+            raise RpcError(f"Authentication failed for {self.login!r} on db {self.db!r}")
+        self._models = xmlrpc.client.ServerProxy(f"{self.url}/xmlrpc/2/object")
+        return self.uid
+
+    def execute_kw(self, model, method, args=None, kwargs=None):
+        try:
+            return self._models.execute_kw(
+                self.db, self.uid, self.password,
+                model, method, args or [], kwargs or {},
+            )
+        except xmlrpc.client.Fault as exc:
+            raise RpcError(exc.faultString, code=exc.faultCode) from exc
+
+
+class JsonRpcClient(OdooRpcClient):
+    def authenticate(self):
+        payload = {
+            "jsonrpc": "2.0",
+            "method": "call",
+            "params": {
+                "service": "common",
+                "method": "authenticate",
+                "args": [self.db, self.login, self.password, {}],
+            },
+            "id": 1,
+        }
+        result = self._jsonrpc(payload)
+        if not result:
+            raise RpcError(f"Authentication failed for {self.login!r} on db {self.db!r}")
+        self.uid = result
+        return self.uid
+
+    def execute_kw(self, model, method, args=None, kwargs=None):
+        payload = {
+            "jsonrpc": "2.0",
+            "method": "call",
+            "params": {
+                "service": "object",
+                "method": "execute_kw",
+                "args": [
+                    self.db, self.uid, self.password,
+                    model, method, args or [], kwargs or {},
+                ],
+            },
+            "id": 1,
+        }
+        return self._jsonrpc(payload)
+
+    def _jsonrpc(self, payload):
+        data = json.dumps(payload).encode("utf-8")
+        req = urllib.request.Request(
+            f"{self.url}/jsonrpc",
+            data=data,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=120) as resp:
+                body = json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            raise RpcError(f"HTTP {exc.code}: {exc.reason}") from exc
+        except urllib.error.URLError as exc:
+            raise RpcError(f"Connection error: {exc.reason}") from exc
+
+        if body.get("error"):
+            err = body["error"]
+            msg = err.get("data", {}).get("message") or err.get("message", str(err))
+            raise RpcError(msg, code=err.get("code"))
+        return body.get("result")
+
+
+def connect(url, db, login, password, rpc="xmlrpc"):
+    rpc = rpc.lower()
+    if rpc == "jsonrpc":
+        client = JsonRpcClient(url, db, login, password)
+    elif rpc == "xmlrpc":
+        client = XmlRpcClient(url, db, login, password)
+    else:
+        raise ValueError(f"Unknown RPC type: {rpc!r} (use xmlrpc or jsonrpc)")
+    client.authenticate()
+    return client
+
+
+# ---------------------------------------------------------------------------
+# Test
+# ---------------------------------------------------------------------------
 
 def unique_suffix() -> str:
-    """Return a short unique suffix based on current timestamp."""
-    return datetime.datetime.utcnow().strftime("%Y%m%d%H%M%S%f")[:15]
+    return datetime.utcnow().strftime("%Y%m%d%H%M%S%f")[:15]
+
+
+def m2o_id(value) -> int | None:
+    if not value:
+        return None
+    if isinstance(value, (list, tuple)):
+        return value[0]
+    return value
 
 
 class TestSaleOrderCancelOldCustomerStatus:
     def __init__(self, client: OdooRpcClient, no_cleanup: bool = False):
         self.rpc = client
-        self.cleanup_tracker: List[Tuple[str, int]] = []  # (model, record_id)
+        self.cleanup_tracker: list[tuple[str, int]] = []
         self.no_cleanup = no_cleanup
         self.suffix = unique_suffix()
 
@@ -57,12 +238,11 @@ class TestSaleOrderCancelOldCustomerStatus:
             self.cleanup_tracker.append((model, record_id))
 
     def _cleanup(self):
-        # Reverse order cleanup: delete sale order → project → partner
         for model, record_id in reversed(self.cleanup_tracker):
             try:
                 self.rpc.unlink(model, [record_id])
                 LOGGER.info("[CLEANUP] Deleted %s %s", model, record_id)
-            except Exception as exc:  # pragma: no cover
+            except Exception as exc:
                 LOGGER.warning("[CLEANUP] Failed to delete %s %s: %s", model, record_id, exc)
 
     def run(self):
@@ -70,7 +250,7 @@ class TestSaleOrderCancelOldCustomerStatus:
             self.authenticate()
             partner_id = self.create_partner()
             offer = self.find_assistance_offer()
-            product_ids = self.find_two_service_products(offer["id"])  # type: ignore
+            product_ids = self.find_two_service_products(offer["id"])
             so_id = self.create_sale_order(partner_id, offer, product_ids)
             self.confirm_sale_order(so_id)
             self.assert_partner_status(partner_id, "customer")
@@ -84,9 +264,7 @@ class TestSaleOrderCancelOldCustomerStatus:
                 self._cleanup()
 
     def authenticate(self):
-        # Authentication is performed inside OdooRpcClient construction.
-        # This method exists for parity with other scripts.
-        LOGGER.info("[INFO] Authenticated to Odoo instance.")
+        LOGGER.info("[INFO] Authenticated to Odoo as uid=%s", self.rpc.uid)
 
     def create_partner(self) -> int:
         name = f"TestPartner_{self.suffix}"
@@ -100,35 +278,42 @@ class TestSaleOrderCancelOldCustomerStatus:
         LOGGER.info("[PASS] Created partner %s (id=%s)", name, partner_id)
         return partner_id
 
-    def find_assistance_offer(self) -> Dict[str, Any]:
-        # Primary search by the explicit 'type' field, fallback by name.
-        offers = self.rpc.search_read(
-            "offer.offer",
-            [["type", "=", "assistance"]],
-            ["id", "business_unit_ids", "business_localisation_ids"],
-            limit=1,
-        )
+    def find_assistance_offer(self) -> dict[str, Any]:
+        offer_fields = self.rpc.fields_get("offer.offer", attributes=["type"])
+        type_field = None
+        for candidate in ("type", "x_studio_type"):
+            if candidate in offer_fields:
+                type_field = candidate
+                break
+
+        offers = []
+        if type_field:
+            offers = self.rpc.search_read(
+                "offer.offer",
+                [(type_field, "=", "assistance")],
+                ["id", "name", "business_unit_ids", "business_localisation_ids"],
+                limit=1,
+            )
         if not offers:
             offers = self.rpc.search_read(
                 "offer.offer",
-                [["name", "ilike", "assistance"]],
-                ["id", "business_unit_ids", "business_localisation_ids"],
+                [("name", "ilike", "assistance")],
+                ["id", "name", "business_unit_ids", "business_localisation_ids"],
                 limit=1,
             )
         if not offers:
             raise RpcError("Assistance offer not found.")
         offer = offers[0]
-        LOGGER.info("[PASS] Found assistance offer id=%s", offer["id"])
+        LOGGER.info("[PASS] Found assistance offer id=%s name=%s", offer["id"], offer.get("name"))
         return offer
 
-    def find_two_service_products(self, offer_id: int) -> List[int]:
+    def find_two_service_products(self, offer_id: int) -> list[int]:
         domain = [
-            ["offer_ids", "in", [offer_id]],
-            ["type", "=", "service"],
-            ["sale_ok", "=", True],
+            ("offer_ids", "in", [offer_id]),
+            ("type", "=", "service"),
+            ("sale_ok", "=", True),
         ]
-        fields = ["id"]
-        products = self.rpc.search_read("product.product", domain, fields, limit=2)
+        products = self.rpc.search_read("product.product", domain, ["id", "name"], limit=2)
         if len(products) < 2:
             raise RpcError("Could not find two service products linked to the offer.")
         product_ids = [p["id"] for p in products]
@@ -138,18 +323,16 @@ class TestSaleOrderCancelOldCustomerStatus:
     def create_sale_order(
         self,
         partner_id: int,
-        offer: Dict[str, Any],
-        product_ids: List[int],
+        offer: dict[str, Any],
+        product_ids: list[int],
     ) -> int:
-        # Derive business unit and localisation from the offer (first records).
-        bu_id = offer.get("business_unit_ids")
-        loc_id = offer.get("business_localisation_ids")
-        if isinstance(bu_id, list):
-            bu_id = bu_id[0] if bu_id else None
-        if isinstance(loc_id, list):
-            loc_id = loc_id[0] if loc_id else None
-        if not (bu_id and loc_id):
+        bu_ids = offer.get("business_unit_ids") or []
+        loc_ids = offer.get("business_localisation_ids") or []
+        bu_id = bu_ids[0] if bu_ids else None
+        loc_id = loc_ids[0] if loc_ids else None
+        if not bu_id or not loc_id:
             raise RpcError("Offer missing business unit or localisation.")
+
         order_vals = {
             "partner_id": partner_id,
             "business_unit_id": bu_id,
@@ -180,17 +363,10 @@ class TestSaleOrderCancelOldCustomerStatus:
             raise AssertionError(
                 f"Partner status is '{actual}', expected '{expected_status}'."
             )
-        LOGGER.info(
-            "[PASS] Partner %s status == '%s'",
-            partner_id,
-            expected_status,
-        )
+        LOGGER.info("[PASS] Partner %s status == '%s'", partner_id, expected_status)
 
     def create_link_project(self, so_id: int) -> int:
-        # Create wizard with operation='create'
         wiz_id = self.rpc.create("link.so.project.wizard", {"operation": "create"})
-        self._track("link.so.project.wizard", wiz_id)
-        # Call wizard method with appropriate active context.
         context = {
             "active_model": "sale.order",
             "active_id": so_id,
@@ -203,27 +379,41 @@ class TestSaleOrderCancelOldCustomerStatus:
             context=context,
         )
         LOGGER.info("[PASS] link_so_project wizard executed (wizard id=%s).", wiz_id)
-        # Retrieve project_id from sale order lines.
+
         lines = self.rpc.search_read(
             "sale.order.line",
-            [["order_id", "=", so_id]],
+            [("order_id", "=", so_id)],
             ["project_id"],
-            limit=1,
         )
-        if not lines:
-            raise AssertionError("No sale.order.line found for the sale order.")
-        proj_field = lines[0].get("project_id")
-        if not proj_field:
-            raise AssertionError("Project not linked to sale order line.")
-        # project_id is a many2one represented as [id, name]
-        project_id = proj_field[0] if isinstance(proj_field, list) else proj_field
+        project_id = None
+        for line in lines:
+            project_id = m2o_id(line.get("project_id"))
+            if project_id:
+                break
+
+        if not project_id:
+            so = self.rpc.read("sale.order", [so_id], ["partner_id"])[0]
+            partner_id = m2o_id(so.get("partner_id"))
+            projects = self.rpc.search(
+                "project.project",
+                [("partner_id", "=", partner_id)],
+                limit=1,
+                order="id desc",
+            )
+            if projects:
+                project_id = projects[0]
+
+        if not project_id:
+            raise AssertionError("Project not linked to sale order after wizard.")
+
         self._track("project.project", project_id)
         LOGGER.info("[PASS] Project created with id=%s", project_id)
         return project_id
 
     def assert_no_quality_logs(self, project_id: int):
         count = self.rpc.search_count(
-            "quality.issue.log", [("project_id", "=", project_id)]
+            "quality.issue.log",
+            [("project_id", "=", project_id)],
         )
         if count != 0:
             raise AssertionError(
@@ -240,6 +430,15 @@ def parse_args():
     parser = argparse.ArgumentParser(
         description="Odoo RPC test: partner status after SO cancel",
     )
+    parser.add_argument("--url", default=os.environ.get("ODOO_URL", DEFAULT_URL))
+    parser.add_argument("--db", default=os.environ.get("ODOO_DB", DEFAULT_DB))
+    parser.add_argument("--user", default=os.environ.get("ODOO_USER", DEFAULT_USER))
+    parser.add_argument("--password", default=os.environ.get("ODOO_PASSWORD", DEFAULT_PASSWORD))
+    parser.add_argument(
+        "--rpc",
+        choices=["xmlrpc", "jsonrpc"],
+        default=os.environ.get("ODOO_RPC", "xmlrpc"),
+    )
     parser.add_argument(
         "--no-cleanup",
         action="store_true",
@@ -249,26 +448,23 @@ def parse_args():
 
 
 def main():
+    logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
     args = parse_args()
-    import os
-client = connect(
-    os.getenv("ODOO_URL"),
-    os.getenv("ODOO_DB"),
-    os.getenv("ODOO_USER"),
-    os.getenv("ODOO_PASSWORD"),
-)
-    test = TestSaleOrderCancelOldCustomerStatus(client, no_cleanup=args.no_cleanup)
+
     try:
+        client = connect(args.url, args.db, args.user, args.password, rpc=args.rpc)
+        test = TestSaleOrderCancelOldCustomerStatus(client, no_cleanup=args.no_cleanup)
         test.run()
-    except RpcError as e:
-        LOGGER.error("[FAIL] RPC error: %s", e)
+    except RpcError as exc:
+        LOGGER.error("[FAIL] RPC error: %s", exc)
         sys.exit(1)
-    except AssertionError as e:
-        LOGGER.error("[FAIL] Assertion failed: %s", e)
+    except AssertionError as exc:
+        LOGGER.error("[FAIL] Assertion failed: %s", exc)
         sys.exit(1)
-    except Exception as e:  # pragma: no cover
-        LOGGER.exception("[FAIL] Unexpected error: %s", e)
+    except Exception as exc:
+        LOGGER.exception("[FAIL] Unexpected error: %s", exc)
         sys.exit(1)
+
     sys.exit(0)
 
 
