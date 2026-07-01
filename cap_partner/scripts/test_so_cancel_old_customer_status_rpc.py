@@ -35,7 +35,7 @@ import sys
 import urllib.error
 import urllib.request
 import xmlrpc.client
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 LOGGER = logging.getLogger(__name__)
@@ -75,7 +75,9 @@ class OdooRpcClient:
         raise NotImplementedError
 
     def call(self, model, method, *args, **kwargs):
-        return self.execute_kw(model, method, list(args), kwargs or {})
+        clean_args = [sanitize_for_rpc(arg) for arg in args]
+        clean_kwargs = sanitize_for_rpc(kwargs) if kwargs else {}
+        return self.execute_kw(model, method, clean_args, clean_kwargs)
 
     def search(self, model, domain, limit=0, order=None):
         kw = {}
@@ -107,10 +109,10 @@ class OdooRpcClient:
         return self.call(model, "read", ids, **kw)
 
     def create(self, model, vals):
-        return self.call(model, "create", vals)
+        return self.call(model, "create", sanitize_for_rpc(vals))
 
     def write(self, model, ids, vals):
-        return self.call(model, "write", ids, vals)
+        return self.call(model, "write", ids, sanitize_for_rpc(vals))
 
     def unlink(self, model, ids):
         return self.call(model, "unlink", ids)
@@ -124,11 +126,15 @@ class OdooRpcClient:
 
 class XmlRpcClient(OdooRpcClient):
     def authenticate(self):
-        common = xmlrpc.client.ServerProxy(f"{self.url}/xmlrpc/2/common")
+        common = xmlrpc.client.ServerProxy(
+            f"{self.url}/xmlrpc/2/common", allow_none=True,
+        )
         self.uid = common.authenticate(self.db, self.login, self.password, {})
         if not self.uid:
             raise RpcError(f"Authentication failed for {self.login!r} on db {self.db!r}")
-        self._models = xmlrpc.client.ServerProxy(f"{self.url}/xmlrpc/2/object")
+        self._models = xmlrpc.client.ServerProxy(
+            f"{self.url}/xmlrpc/2/object", allow_none=True,
+        )
         return self.uid
 
     def execute_kw(self, model, method, args=None, kwargs=None):
@@ -215,7 +221,18 @@ def connect(url, db, login, password, rpc="xmlrpc"):
 # ---------------------------------------------------------------------------
 
 def unique_suffix() -> str:
-    return datetime.utcnow().strftime("%Y%m%d%H%M%S%f")[:15]
+    return datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S%f")[:15]
+
+
+def sanitize_for_rpc(value):
+    """Remove None values so XML-RPC can marshal Odoo command tuples."""
+    if value is None:
+        return False
+    if isinstance(value, dict):
+        return {k: sanitize_for_rpc(v) for k, v in value.items() if v is not None}
+    if isinstance(value, (list, tuple)):
+        return [sanitize_for_rpc(item) for item in value]
+    return value
 
 
 def m2o_id(value) -> int | None:
@@ -232,12 +249,22 @@ class TestSaleOrderCancelOldCustomerStatus:
         self.cleanup_tracker: list[tuple[str, int]] = []
         self.no_cleanup = no_cleanup
         self.suffix = unique_suffix()
+        self.company_id: int | None = None
+        self.team_id: int | False = False
 
     def _track(self, model: str, record_id: int):
         if not self.no_cleanup:
             self.cleanup_tracker.append((model, record_id))
 
     def _cleanup(self):
+        for model, record_id in reversed(self.cleanup_tracker):
+            if model == "sale.order":
+                try:
+                    rows = self.rpc.read("sale.order", [record_id], ["state"])
+                    if rows and rows[0].get("state") in ("sale", "done"):
+                        self.rpc.call("sale.order", "action_cancel", [record_id])
+                except Exception as exc:
+                    LOGGER.warning("[CLEANUP] Could not cancel sale.order %s: %s", record_id, exc)
         for model, record_id in reversed(self.cleanup_tracker):
             try:
                 self.rpc.unlink(model, [record_id])
@@ -246,25 +273,47 @@ class TestSaleOrderCancelOldCustomerStatus:
                 LOGGER.warning("[CLEANUP] Failed to delete %s %s: %s", model, record_id, exc)
 
     def run(self):
-        try:
-            self.authenticate()
-            partner_id = self.create_partner()
-            offer = self.find_assistance_offer()
-            product_ids = self.find_two_service_products(offer["id"])
-            so_id = self.create_sale_order(partner_id, offer, product_ids)
-            self.confirm_sale_order(so_id)
-            self.assert_partner_status(partner_id, "customer")
-            project_id = self.create_link_project(so_id)
-            self.cancel_sale_order(so_id)
-            self.assert_partner_status(partner_id, "old_customer")
-            self.assert_no_quality_logs(project_id)
-            LOGGER.info("[PASS] All assertions succeeded.")
-        finally:
-            if not self.no_cleanup:
-                self._cleanup()
+        self.authenticate()
+        partner_id = self.create_partner()
+        offer = self.find_assistance_offer()
+        products = self.find_two_service_products(offer["id"])
+        so_id = self.create_sale_order(partner_id, offer, products)
+        self.confirm_sale_order(so_id)
+        self.assert_partner_status(partner_id, "customer")
+        project_id = self.create_link_project(so_id)
+        self.assign_project_user(project_id)
+        self.cancel_sale_order(so_id)
+        self.assert_partner_status(partner_id, "old_customer")
+        self.assert_no_quality_logs(project_id)
+        LOGGER.info("[PASS] All assertions succeeded.")
+        if not self.no_cleanup:
+            self._cleanup()
 
     def authenticate(self):
-        LOGGER.info("[INFO] Authenticated to Odoo as uid=%s", self.rpc.uid)
+        user = self.rpc.read("res.users", [self.rpc.uid], ["company_id"])[0]
+        self.company_id = m2o_id(user.get("company_id"))
+        if not self.company_id:
+            raise RpcError("RPC user has no default company_id.")
+        teams = self.rpc.search_read(
+            "crm.team",
+            [("company_id", "=", self.company_id)],
+            ["id"],
+            limit=1,
+        )
+        if not teams:
+            teams = self.rpc.search_read(
+                "crm.team",
+                [("company_id", "=", False)],
+                ["id"],
+                limit=1,
+            )
+        self.team_id = teams[0]["id"] if teams else False
+        LOGGER.info(
+            "[INFO] Authenticated to Odoo as uid=%s company_id=%s team_id=%s",
+            self.rpc.uid,
+            self.company_id,
+            self.team_id,
+        )
 
     def create_partner(self) -> int:
         name = f"TestPartner_{self.suffix}"
@@ -272,6 +321,7 @@ class TestSaleOrderCancelOldCustomerStatus:
             "name": name,
             "company_type": "company",
             "is_company": True,
+            "company_id": self.company_id,
         }
         partner_id = self.rpc.create("res.partner", vals)
         self._track("res.partner", partner_id)
@@ -307,42 +357,70 @@ class TestSaleOrderCancelOldCustomerStatus:
         LOGGER.info("[PASS] Found assistance offer id=%s name=%s", offer["id"], offer.get("name"))
         return offer
 
-    def find_two_service_products(self, offer_id: int) -> list[int]:
+    def find_two_service_products(self, offer_id: int) -> list[dict[str, Any]]:
         domain = [
             ("offer_ids", "in", [offer_id]),
             ("type", "=", "service"),
             ("sale_ok", "=", True),
         ]
-        products = self.rpc.search_read("product.product", domain, ["id", "name"], limit=2)
+        fields = ["id", "name", "uom_id", "lst_price", "minimumSalePrice"]
+        product_fields = self.rpc.fields_get("product.product", attributes=["type"])
+        if "minimumSalePrice" not in product_fields:
+            fields = [f for f in fields if f != "minimumSalePrice"]
+
+        products = self.rpc.search_read("product.product", domain, fields, limit=2)
         if len(products) < 2:
             raise RpcError("Could not find two service products linked to the offer.")
-        product_ids = [p["id"] for p in products]
-        LOGGER.info("[PASS] Selected service products %s", product_ids)
-        return product_ids
+        LOGGER.info("[PASS] Selected service products %s", [p["id"] for p in products])
+        return products
+
+    def _order_line_vals(self, product: dict[str, Any]) -> dict[str, Any]:
+        uom_id = m2o_id(product.get("uom_id"))
+        if not uom_id:
+            raise RpcError(f"Product {product['id']} has no UoM.")
+        price = product.get("lst_price") or 1.0
+        minimum = product.get("minimumSalePrice")
+        if minimum and price < minimum:
+            price = minimum
+        return {
+            "product_id": product["id"],
+            "product_uom_qty": 1.0,
+            "product_uom_id": uom_id,
+            "price_unit": price,
+        }
 
     def create_sale_order(
         self,
         partner_id: int,
         offer: dict[str, Any],
-        product_ids: list[int],
+        products: list[dict[str, Any]],
     ) -> int:
-        bu_ids = offer.get("business_unit_ids") or []
-        loc_ids = offer.get("business_localisation_ids") or []
-        bu_id = bu_ids[0] if bu_ids else None
-        loc_id = loc_ids[0] if loc_ids else None
+        bu_id = m2o_id(offer.get("business_unit_ids"))
+        loc_id = m2o_id(offer.get("business_localisation_ids"))
+        if not bu_id:
+            bu_ids = offer.get("business_unit_ids") or []
+            bu_id = bu_ids[0] if bu_ids else None
+        if not loc_id:
+            loc_ids = offer.get("business_localisation_ids") or []
+            loc_id = loc_ids[0] if loc_ids else None
         if not bu_id or not loc_id:
             raise RpcError("Offer missing business unit or localisation.")
 
         order_vals = {
             "partner_id": partner_id,
+            "company_id": self.company_id,
             "business_unit_id": bu_id,
             "business_localisation_id": loc_id,
             "offer_id": offer["id"],
             "order_line": [
-                (0, 0, {"product_id": product_ids[0], "product_uom_qty": 1.0}),
-                (0, 0, {"product_id": product_ids[1], "product_uom_qty": 1.0}),
+                (0, 0, self._order_line_vals(products[0])),
+                (0, 0, self._order_line_vals(products[1])),
             ],
         }
+        if self.team_id:
+            order_vals["team_id"] = self.team_id
+        elif "team_id" in self.rpc.fields_get("sale.order", attributes=["type"]):
+            order_vals["team_id"] = False
         so_id = self.rpc.create("sale.order", order_vals)
         self._track("sale.order", so_id)
         LOGGER.info("[PASS] Created sale.order id=%s", so_id)
@@ -365,6 +443,27 @@ class TestSaleOrderCancelOldCustomerStatus:
             )
         LOGGER.info("[PASS] Partner %s status == '%s'", partner_id, expected_status)
 
+    def _resolve_project_id(self, so_id: int) -> int | None:
+        lines = self.rpc.search_read(
+            "sale.order.line",
+            [("order_id", "=", so_id)],
+            ["project_id"],
+        )
+        for line in lines:
+            project_id = m2o_id(line.get("project_id"))
+            if project_id:
+                return project_id
+
+        so = self.rpc.read("sale.order", [so_id], ["partner_id"])[0]
+        partner_id = m2o_id(so.get("partner_id"))
+        projects = self.rpc.search(
+            "project.project",
+            [("partner_id", "=", partner_id)],
+            limit=1,
+            order="id desc",
+        )
+        return projects[0] if projects else None
+
     def create_link_project(self, so_id: int) -> int:
         wiz_id = self.rpc.create("link.so.project.wizard", {"operation": "create"})
         context = {
@@ -380,35 +479,22 @@ class TestSaleOrderCancelOldCustomerStatus:
         )
         LOGGER.info("[PASS] link_so_project wizard executed (wizard id=%s).", wiz_id)
 
-        lines = self.rpc.search_read(
-            "sale.order.line",
-            [("order_id", "=", so_id)],
-            ["project_id"],
-        )
-        project_id = None
-        for line in lines:
-            project_id = m2o_id(line.get("project_id"))
-            if project_id:
-                break
-
-        if not project_id:
-            so = self.rpc.read("sale.order", [so_id], ["partner_id"])[0]
-            partner_id = m2o_id(so.get("partner_id"))
-            projects = self.rpc.search(
-                "project.project",
-                [("partner_id", "=", partner_id)],
-                limit=1,
-                order="id desc",
-            )
-            if projects:
-                project_id = projects[0]
-
+        project_id = self._resolve_project_id(so_id)
         if not project_id:
             raise AssertionError("Project not linked to sale order after wizard.")
 
         self._track("project.project", project_id)
         LOGGER.info("[PASS] Project created with id=%s", project_id)
         return project_id
+
+    def assign_project_user(self, project_id: int):
+        self.rpc.write("project.project", [project_id], {"user_id": self.rpc.uid})
+        project = self.rpc.read("project.project", [project_id], ["user_id"])[0]
+        if m2o_id(project.get("user_id")) != self.rpc.uid:
+            raise AssertionError(
+                f"Project {project_id} user_id not set to RPC user {self.rpc.uid}."
+            )
+        LOGGER.info("[PASS] Project %s user_id set to %s", project_id, self.rpc.uid)
 
     def assert_no_quality_logs(self, project_id: int):
         count = self.rpc.search_count(
@@ -437,7 +523,7 @@ def parse_args():
     parser.add_argument(
         "--rpc",
         choices=["xmlrpc", "jsonrpc"],
-        default=os.environ.get("ODOO_RPC", "xmlrpc"),
+        default=os.environ.get("ODOO_RPC", "jsonrpc"),
     )
     parser.add_argument(
         "--no-cleanup",
