@@ -71,11 +71,32 @@ ROLE_MATRIX_ENTRIES: tuple[ScenarioEntry, ...] = (
         layers=("backend",),
     ),
     ScenarioEntry(
+        id="so_project_color_overdue_due_date",
+        kind="role_matrix",
+        description="SO + link project → invoice due 3 days ago → orange project color",
+        modules=(
+            "ksc_project_extended",
+            "ksc_sale_project_extended",
+            "cap_offer",
+            "sale",
+        ),
+        use_case="ksc_project_extended grace-period orange when invoice due date is 3 days past.",
+        layers=("backend",),
+    ),
+    ScenarioEntry(
         id="quality_issue_ask_for_review",
         kind="role_matrix",
         description="Employee Ask For Review → manager To-Do on quality.issue.log",
         modules=("cap_quality_issue_log", "access_rights_management", "hr"),
         use_case="QIL ask_for_review per role.",
+        layers=("backend",),
+    ),
+    ScenarioEntry(
+        id="ocean_lead_enrichment",
+        kind="role_matrix",
+        description="Ocean.io prospect search → CRM lead import → optional people lookup enrich",
+        modules=("cap_ocean_connector", "crm"),
+        use_case="Prospect wizard imports Ocean data to crm.lead; live search also runs people enrichment lookup.",
         layers=("backend",),
     ),
     ScenarioEntry(
@@ -93,22 +114,6 @@ ROLE_MATRIX_ENTRIES: tuple[ScenarioEntry, ...] = (
         modules=("connect_mistral_ai", "project", "ai"),
         use_case="Task form → AI Assistant → transcript + prompt → Let's do it! → Description.",
         layers=("ui",),
-    ),
-    # Project color computation flow
-    ScenarioEntry(
-        id="project_color_computation",
-        kind="role_matrix",
-        description="SO → Project → Invoice → Color computation (red/orange/green) + blocking ops",
-        modules=(
-            "project",
-            "sale",
-            "account",
-            "cap_partner",
-            "offer",
-            "access_rights_management",
-        ),
-        use_case="Test full flow: confirm SO with timesheet products, link project, post invoice, verify color triggers, task inheritance, and blocking operations.",
-        layers=("backend", "ui"),
     ),
 )
 
@@ -204,6 +209,15 @@ SCRIPT_ENTRIES: tuple[ScenarioEntry, ...] = (
         auth_user="admin",
         layers=("backend",),
     ),
+ScenarioEntry(
+    id="connect_deepseek_ai",
+    kind="script",
+    description="DeepSeek AI Connector (auto-generated smoke)",
+    modules=('connect_deepseek_ai', 'ai', 'ai_app'),
+    script_relpath="connect_deepseek_ai/models/test_connect_deepseek_ai_rpc.py",
+    auth_user="admin",
+    layers=("backend",),
+),
 )
 
 ROLE_MATRIX_BY_ID = {e.id: e for e in ROLE_MATRIX_ENTRIES}

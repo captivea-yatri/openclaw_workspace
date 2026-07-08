@@ -1,18 +1,22 @@
 """Scenario registry."""
 from __future__ import annotations
 
+from cap_qa_platform.scenarios.so_project_color_overdue_due_date import SoProjectColorOverdueDueDateScenario
+from cap_qa_platform.scenarios.ocean_lead_enrichment import OceanLeadEnrichmentScenario
 from cap_qa_platform.scenarios.generate_task_test_ai import GenerateTaskTestAiScenario
-from cap_qa_platform.scenarios.project_color_computation import ProjectColorComputationScenario
 from cap_qa_platform.scenarios.quality_issue_ask_for_review import QualityIssueAskForReviewScenario
 from cap_qa_platform.scenarios.so_cancel_old_customer import SoCancelOldCustomerScenario
 from cap_qa_platform.scenarios.so_link_project_invoice_color import SoLinkProjectInvoiceColorScenario
 
 SCENARIO_CLASSES: dict[str, type] = {
+    "so_project_color_overdue_due_date": SoProjectColorOverdueDueDateScenario,
+
+    "ocean_lead_enrichment": OceanLeadEnrichmentScenario,
+
     "generate_task_test_ai": GenerateTaskTestAiScenario,
     "so_cancel_old_customer": SoCancelOldCustomerScenario,
     "so_link_project_invoice_color": SoLinkProjectInvoiceColorScenario,
     "quality_issue_ask_for_review": QualityIssueAskForReviewScenario,
-    "project_color_computation": ProjectColorComputationScenario,
 }
 
 

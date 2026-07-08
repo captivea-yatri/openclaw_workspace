@@ -23,6 +23,9 @@ def _run_mcp() -> int:
 
     from cap_qa_platform.backend.runner import RunConfig, run_scenario
     from cap_qa_platform.catalog import ALL_SCENARIO_IDS, list_scenarios
+    from cap_qa_platform.discovery.module_analyzer import analyze_module
+    from cap_qa_platform.discovery.module_scanner import discover_modules
+    from cap_qa_platform.discovery.test_generator import scaffold_module_test
     from cap_qa_platform.nlp.prompt_cli import parse_natural_command, scaffold_scenario
     from cap_qa_platform.ui.runner import run_ui_smoke
     from cap_qa_platform.staging import load_staging_env
@@ -34,6 +37,32 @@ def _run_mcp() -> int:
     def list_scenarios_tool() -> str:
         """List all QA scenarios (backend + UI layers)."""
         return json.dumps(list_scenarios(), indent=2)
+
+    @mcp.tool()
+    def discover_modules_tool(include_tested: bool = False) -> str:
+        """Scan custom_addons for Odoo modules and report QA coverage gaps."""
+        return json.dumps(discover_modules(include_tested=include_tested), indent=2)
+
+    @mcp.tool()
+    def analyze_module_tool(module_name: str) -> str:
+        """Analyze one Odoo module folder (manifest, models, AI connector wiring)."""
+        return json.dumps(analyze_module(module_name), indent=2)
+
+    @mcp.tool()
+    def scaffold_module_test_tool(
+        module_name: str,
+        register_catalog: bool = True,
+        overwrite: bool = False,
+    ) -> str:
+        """Auto-generate RPC smoke test from module folder and register in catalog."""
+        return json.dumps(
+            scaffold_module_test(
+                module_name,
+                register_catalog=register_catalog,
+                overwrite=overwrite,
+            ),
+            indent=2,
+        )
 
     @mcp.tool()
     def run_backend_smoke(
@@ -113,6 +142,46 @@ def _run_mcp() -> int:
         """Scaffold new scenario files from a brief."""
         modules = json.loads(modules_json)
         return json.dumps(scaffold_scenario(scenario_id, brief, modules), indent=2)
+
+    @mcp.tool()
+    def scaffold_and_run_smoke_tool(
+        module_name: str,
+        url: str,
+        db: str,
+        user: str,
+        password: str,
+        role: str = "President",
+        overwrite: bool = False,
+        protocol: str = "jsonrpc",
+    ) -> str:
+        """Generate module RPC test, register catalog entry, and run smoke once."""
+        scaffold_result = scaffold_module_test(
+            module_name,
+            register_catalog=True,
+            overwrite=overwrite,
+        )
+        if module_name not in ALL_SCENARIO_IDS:
+            import importlib
+            import cap_qa_platform.catalog as catalog_mod
+
+            importlib.reload(catalog_mod)
+
+        smoke_result = run_scenario(
+            RunConfig(
+                url=url,
+                db=db,
+                user=user,
+                password=password,
+                protocol=protocol,
+                roles=[role],
+            ),
+            module_name,
+        )
+        return json.dumps(
+            {"scaffold": scaffold_result, "smoke": smoke_result},
+            indent=2,
+            default=str,
+        )
 
     mcp.run()
     return 0

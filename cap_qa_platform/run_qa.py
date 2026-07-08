@@ -229,6 +229,32 @@ def cmd_scaffold(args) -> int:
     return 0
 
 
+def cmd_discover(_args) -> int:
+    from cap_qa_platform.discovery.module_scanner import discover_modules
+
+    print(json.dumps(discover_modules(include_tested=_args.all), indent=2))
+    return 0
+
+
+def cmd_analyze_module(args) -> int:
+    from cap_qa_platform.discovery.module_analyzer import analyze_module
+
+    print(json.dumps(analyze_module(args.module), indent=2))
+    return 0
+
+
+def cmd_scaffold_module(args) -> int:
+    from cap_qa_platform.discovery.test_generator import scaffold_module_test
+
+    result = scaffold_module_test(
+        args.module,
+        register_catalog=not args.no_catalog,
+        overwrite=args.overwrite,
+    )
+    print(json.dumps(result, indent=2))
+    return 0
+
+
 def cmd_mcp(_args) -> int:
     from cap_qa_platform.mcp.server import _run_mcp
 
@@ -303,6 +329,20 @@ def main() -> int:
     p_scaffold.add_argument("brief")
     p_scaffold.add_argument("--modules", nargs="*")
     p_scaffold.set_defaults(func=cmd_scaffold)
+
+    p_discover = sub.add_parser("discover", help="Scan custom_addons for QA coverage gaps")
+    p_discover.add_argument("--all", action="store_true", help="Include modules already in catalog")
+    p_discover.set_defaults(func=cmd_discover)
+
+    p_analyze = sub.add_parser("analyze-module", help="Analyze one Odoo module folder")
+    p_analyze.add_argument("module")
+    p_analyze.set_defaults(func=cmd_analyze_module)
+
+    p_scaffold_mod = sub.add_parser("scaffold-module", help="Auto-generate RPC smoke test for a module")
+    p_scaffold_mod.add_argument("module")
+    p_scaffold_mod.add_argument("--no-catalog", action="store_true")
+    p_scaffold_mod.add_argument("--overwrite", action="store_true")
+    p_scaffold_mod.set_defaults(func=cmd_scaffold_module)
 
     p_mcp = sub.add_parser("mcp", help="Start MCP server for AI tools")
     p_mcp.set_defaults(func=cmd_mcp)
