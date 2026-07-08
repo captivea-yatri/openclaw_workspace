@@ -94,6 +94,22 @@ ROLE_MATRIX_ENTRIES: tuple[ScenarioEntry, ...] = (
         use_case="Task form → AI Assistant → transcript + prompt → Let's do it! → Description.",
         layers=("ui",),
     ),
+    # Project color computation flow
+    ScenarioEntry(
+        id="project_color_computation",
+        kind="role_matrix",
+        description="SO → Project → Invoice → Color computation (red/orange/green) + blocking ops",
+        modules=(
+            "project",
+            "sale",
+            "account",
+            "cap_partner",
+            "offer",
+            "access_rights_management",
+        ),
+        use_case="Test full flow: confirm SO with timesheet products, link project, post invoice, verify color triggers, task inheritance, and blocking operations.",
+        layers=("backend", "ui"),
+    ),
 )
 
 SCRIPT_ENTRIES: tuple[ScenarioEntry, ...] = (
